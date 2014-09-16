@@ -1,0 +1,30 @@
+# Dependencies
+markdown:         redcarpet
+#pygments:         true
+highlighter:       pygments
+
+# Permalinks
+permalink:        pretty
+
+# Setup
+title:            Berk Geveci
+tagline:          All About VTK / ParaView
+url:              http://localhost:4000
+lsi:              true
+
+paginate:         1
+baseurl:          /
+author:
+  name:           Mark Otto
+  url:            https://twitter.com/mdo
+  email:          markdotto@gmail.com
+
+# Custom vars
+version:          1.0.0
+github:
+  repo:           https://github.com/poole/poole
+
+pages_list:
+    About : '/about'
+    Archive : '/archive'
+    Feed : '/atom.xml'
