@@ -4,7 +4,7 @@
  <title>Berk Geveci</title>
  <link href="http://localhost:4000/atom.xml" rel="self"/>
  <link href="http://localhost:4000/"/>
- <updated>2014-09-16T08:07:39-04:00</updated>
+ <updated>2014-09-16T08:11:40-04:00</updated>
  <id>http://localhost:4000</id>
  <author>
    <name>Berk Geveci</name>
@@ -137,7 +137,7 @@ the data in the index space. So we need to add the method to do that:&lt;/p&gt;
 animation).&lt;/p&gt;
 
 &lt;figure&gt;
-&lt;img src=&quot;http://localhost:4000/assets/image60.png&quot; alt=&quot;Animation&quot; style=&quot;margin-left:auto; margin-right:auto&quot; onclick=&#39;javascript:this.src=&quot;http://localhost:4000/assets/rtdata-anim.gif&quot;&#39;/&gt;
+&lt;img src=&quot;/assets/image60.png&quot; alt=&quot;Animation&quot; style=&quot;margin-left:auto; margin-right:auto&quot; onclick=&#39;javascript:this.src=&quot;/assets/rtdata-anim.gif&quot;&#39;/&gt;
 &lt;/figure&gt;
 
 &lt;p&gt;As I discussed previously, &lt;code&gt;RequestInformation&lt;/code&gt; provides meta-data downstream. This meta-data is
@@ -275,7 +275,7 @@ produce the extent requested by the user.&lt;/p&gt;
 &lt;p&gt;This will produce the following (click on the picture to see the animation).&lt;/p&gt;
 
 &lt;figure&gt;
-&lt;img src=&quot;http://localhost:4000/assets/image60-2.png&quot; alt=&quot;Animation&quot; style=&quot;margin-left:auto; margin-right:auto&quot; onclick=&#39;javascript:this.src=&quot;http://localhost:4000/assets/rtdata-anim-2.gif&quot;&#39;/&gt;
+&lt;img src=&quot;/assets/image60-2.png&quot; alt=&quot;Animation&quot; style=&quot;margin-left:auto; margin-right:auto&quot; onclick=&#39;javascript:this.src=&quot;/assets/rtdata-anim-2.gif&quot;&#39;/&gt;
 &lt;/figure&gt;
 
 &lt;p&gt;We now have a fairly complex reader in our hands. With some digging through h5py&amp;#39;s documentation
