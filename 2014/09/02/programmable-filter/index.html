@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      vtkProgrammableFilter ain't so bad &middot; Berk Geveci
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+      <h3 class="masthead-title">
+      <a href="/" title="Home">Berk Geveci</a>
+
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/about">About</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/archive">Archive</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/atom.xml">Feed</a></small>
+      
+      </h3>      
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">vtkProgrammableFilter ain't so bad</h1>
+  <span class="post-date">02 Sep 2014</span>
+  <p>When I started preparing for this blog, my goal was to write about how awful <code>vtkProgrammableFilter</code>
+is to use in Python and how the new vtkPythonAlgorithm is superior. Funny enough, as I worked on
+a few examples, I discovered that <code>vtkProgrammableFilter</code> is not so bad if you know a few tricks. It
+does what it is supposed to fairly well. <code>vtkPythonAlgorithm</code> can do a lot more but more on that
+later.</p>
+
+<p>In summary, <code>vtkProgrammableFilter</code> enables one to execute Python code within a pipeline. It is
+designed to perform relatively simple tasks without having to compile C++ classes. Actually, when
+combined with the <code>numpy_interface</code> module that I previously wrote about, it can do fairly complex
+and computationally intensive things too. Let&#39;s start with a very simple example.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>   <span class="kn">import</span> <span class="nn">time</span><span class="o">,</span> <span class="nn">vtk</span>
+<span class="mi">2</span>   <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="mi">3</span>   <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">alg</span>
+<span class="mi">4</span>   
+<span class="mi">5</span>   <span class="k">def</span> <span class="nf">create_scene</span><span class="p">(</span><span class="n">flt</span><span class="p">):</span>
+<span class="mi">6</span>       <span class="n">m</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
+<span class="mi">7</span>       <span class="n">m</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">flt</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">8</span>   
+<span class="mi">9</span>       <span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
+<span class="mi">10</span>      <span class="n">a</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+<span class="mi">11</span>  
+<span class="mi">12</span>      <span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
+<span class="mi">13</span>      <span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="mi">14</span>  
+<span class="mi">15</span>      <span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
+<span class="mi">16</span>      <span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
+<span class="mi">17</span>      <span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
+<span class="mi">18</span>  
+<span class="mi">19</span>      <span class="k">return</span> <span class="n">renWin</span>
+<span class="mi">20</span>  
+<span class="mi">21</span>  <span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+<span class="mi">22</span>  
+<span class="mi">23</span>  <span class="k">def</span> <span class="nf">execute</span><span class="p">():</span>
+<span class="mi">24</span>      <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">pf</span><span class="o">.</span><span class="n">GetInput</span><span class="p">())</span>
+<span class="mi">25</span>      <span class="n">opt</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">pf</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">26</span>      <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+<span class="mi">27</span>      <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">][:,</span> <span class="mi">0</span><span class="p">],</span> <span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+<span class="mi">28</span>      <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+<span class="mi">29</span>  
+<span class="mi">30</span>  <span class="n">pf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkProgrammableFilter</span><span class="p">()</span>
+<span class="mi">31</span>  <span class="n">pf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">32</span>  <span class="n">pf</span><span class="o">.</span><span class="n">SetExecuteMethod</span><span class="p">(</span><span class="n">execute</span><span class="p">)</span>
+<span class="mi">33</span>  
+<span class="mi">34</span>  <span class="n">renWin</span> <span class="o">=</span> <span class="n">create_scene</span><span class="p">(</span><span class="n">pf</span><span class="p">)</span>
+<span class="mi">35</span>  <span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
+<span class="mi">36</span>  <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span></code></pre></div>
+
+<p>Lines 5 - 19 should be pretty obvious to a VTK initiate. They simply create a rendering scene. Line
+21 - 32 create a simple pipeline consisting of a <code>vtkSphereSource</code> and a <code>vtkProgrammableFilter</code>.
+The Programmable Filter creates a new scalar array called <code>Normals-x</code> by extracting the first
+component of the <code>Normals</code> vector generated by the Sphere Source (lines 27-28). This function is
+assigned to the Programmable Filter on line 32. Pretty standard stuff. Still quite powerful if you
+consider that you have almost the entire VTK API plus the <code>numpy_interface</code> module.</p>
+
+<p>What I really dislike about this is that on lines 24 and 25, we have to refer to the pf object that
+is in the global namespace. So, if we add something like this:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">39</span>  <span class="n">pf</span> <span class="o">=</span> <span class="bp">None</span></code></pre></div>
+
+<p>We will get the following error during execution:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">Traceback</span> <span class="p">(</span><span class="n">most</span> <span class="n">recent</span> <span class="n">call</span> <span class="n">last</span><span class="p">):</span>
+  <span class="n">File</span> <span class="s">&quot;lame.py&quot;</span><span class="p">,</span> <span class="n">line</span> <span class="mi">34</span><span class="p">,</span> <span class="ow">in</span> <span class="n">execute</span>
+    <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">pf</span><span class="o">.</span><span class="n">GetInput</span><span class="p">())</span>
+<span class="ne">AttributeError</span><span class="p">:</span> <span class="s">&#39;NoneType&#39;</span> <span class="nb">object</span> <span class="n">has</span> <span class="n">no</span> <span class="n">attribute</span> <span class="s">&#39;GetInput&#39;</span></code></pre></div>
+
+<p>Since the method passed to <code>SetExecuteMethod</code> cannot take any arguments, this seems like the only
+solution. It is kind of yucky. What is worse, if you want to re-use this method and tweak it by
+setting some parameters, you have to do it by adjusting global variables or write a new function for
+each new combination. Ugh.</p>
+
+<p>We can get around the first problem if we can use a closure as follows.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">create_execute</span><span class="p">(</span><span class="nb">filter</span><span class="p">):</span>
+    <span class="n">pf</span> <span class="o">=</span> <span class="nb">filter</span>
+    <span class="k">def</span> <span class="nf">execute</span><span class="p">():</span>
+        <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">pf</span><span class="o">.</span><span class="n">GetInput</span><span class="p">())</span>
+        <span class="n">opt</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">pf</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">][:,</span> <span class="mi">0</span><span class="p">],</span> <span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">execute</span>
+
+<span class="n">pf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkProgrammableFilter</span><span class="p">()</span>
+<span class="n">pf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">pf</span><span class="o">.</span><span class="n">SetExecuteMethod</span><span class="p">(</span><span class="n">create_execute</span><span class="p">(</span><span class="n">pf</span><span class="p">))</span>
+
+<span class="n">renWin</span> <span class="o">=</span> <span class="n">create_scene</span><span class="p">(</span><span class="n">pf</span><span class="p">)</span>
+
+<span class="n">pf</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
+
+<p>This works fine because <code>create_execute()</code> returns a function object which has its argument bound
+within the function object&#39;s scope (a closure). It still doesn&#39;t address the configurability issue.
+I didn&#39;t think that this problem could be solved. I was wrong. <code>SetExecuteMethod</code> accepts any
+<em>callable</em> object. So the following works very nicely.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+
+<span class="k">class</span> <span class="nc">MyAlgorithm</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">algorithm</span><span class="p">):</span>
+        <span class="kn">import</span> <span class="nn">weakref</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">algorithm</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span><span class="p">()</span><span class="o">.</span><span class="n">GetInput</span><span class="p">())</span>
+        <span class="n">opt</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span><span class="p">()</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">][:,</span> <span class="mi">0</span><span class="p">],</span> <span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+
+
+<span class="n">pf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkProgrammableFilter</span><span class="p">()</span>
+<span class="n">pf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">pf</span><span class="o">.</span><span class="n">SetExecuteMethod</span><span class="p">(</span><span class="n">MyAlgorithm</span><span class="p">(</span><span class="n">pf</span><span class="p">))</span></code></pre></div>
+
+<p>An instance of a class that implements the <code>__call__()</code> method is callable. So we can call a
+<code>MyAlgorithm</code> as if it is a function:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">o</span> <span class="o">=</span> <span class="n">MyAlgorithm</span><span class="p">(</span><span class="n">pf</span><span class="p">)</span>
+<span class="n">o</span><span class="p">()</span></code></pre></div>
+
+<p>Note that I used a weak reference to avoid a reference loop between the Programmable Filter and
+<code>MyAlgorithm</code>. We can now customize the programmable filter using the class interface.</p>
+
+<p>Consider another example.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>   <span class="k">class</span> <span class="nc">MyAlgorithm</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+<span class="mi">2</span>       <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">algorithm</span><span class="p">):</span>
+<span class="mi">3</span>           <span class="kn">import</span> <span class="nn">weakref</span>
+<span class="mi">4</span>           <span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">algorithm</span><span class="p">)</span>
+<span class="mi">5</span>           <span class="bp">self</span><span class="o">.</span><span class="n">__Factor</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="mi">6</span>   
+<span class="mi">7</span>       <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="mi">8</span>           <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span><span class="p">()</span><span class="o">.</span><span class="n">GetInput</span><span class="p">())</span>
+<span class="mi">9</span>           <span class="n">opt</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span><span class="p">()</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">10</span>          <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+<span class="mi">11</span>          <span class="k">print</span> <span class="bp">self</span><span class="o">.</span><span class="n">Factor</span>
+<span class="mi">12</span>          <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">][:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">Factor</span><span class="p">,</span> <span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+<span class="mi">13</span>          <span class="n">opt</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&#39;Normals-x&#39;</span><span class="p">)</span>
+<span class="mi">14</span>  
+<span class="mi">15</span>      <span class="k">def</span> <span class="nf">SetFactor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">factor</span><span class="p">):</span>
+<span class="mi">16</span>          <span class="bp">self</span><span class="o">.</span><span class="n">__Factor</span> <span class="o">=</span> <span class="n">factor</span>
+<span class="mi">17</span>          <span class="bp">self</span><span class="o">.</span><span class="n">__Algorithm</span><span class="p">()</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+<span class="mi">18</span>  
+<span class="mi">19</span>      <span class="k">def</span> <span class="nf">GetFactor</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="mi">20</span>          <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__Factor</span>
+<span class="mi">21</span>  
+<span class="mi">22</span>      <span class="n">Factor</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="n">GetFactor</span><span class="p">,</span> <span class="n">SetFactor</span><span class="p">)</span>
+<span class="mi">23</span>  
+<span class="mi">24</span>  <span class="n">pf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkProgrammableFilter</span><span class="p">()</span>
+<span class="mi">25</span>  <span class="n">pf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">26</span>  <span class="n">alg</span> <span class="o">=</span> <span class="n">MyAlgorithm</span><span class="p">(</span><span class="n">pf</span><span class="p">)</span>
+<span class="mi">27</span>  <span class="n">pf</span><span class="o">.</span><span class="n">SetExecuteMethod</span><span class="p">(</span><span class="n">alg</span><span class="p">)</span>
+<span class="mi">28</span>  <span class="n">pf</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">29</span>  
+<span class="mi">30</span>  <span class="n">alg</span><span class="o">.</span><span class="n">Factor</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="mi">31</span>  
+<span class="mi">32</span>  <span class="n">renWin</span> <span class="o">=</span> <span class="n">create_scene</span><span class="p">(</span><span class="n">pf</span><span class="p">)</span>
+<span class="mi">33</span>  <span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
+
+<p>Here I added a Factor property to allow the configuration of the filter. In this example, <code>pf</code> will
+execute twice: the first when Update() is called (with Factor == 1), second during render (with
+Factor == 2). Note that <code>Modified()</code>  on line 17 is necessary for this to work.</p>
+
+<p><code>vtkProgrammableFilter</code> works great for many use cases but has some limitations:</p>
+
+<ul>
+<li>Its output type is always the same as its input type. So one cannot implement filters such as a
+contour filter (which accepts a <code>vtkDataSet</code> and outputs a <code>vtkPolyData</code>) using it.</li>
+<li>It is not possible to properly manipulate pipeline execution by setting keys. We&#39;ll discuss how
+this can be done using <code>vtkPythonAlgorithm</code> in a future blog. </li>
+<li>The source counterpart of <code>vtkProgrammableFilter</code>, <code>vtkProgrammableSource</code>, is very difficult
+to use and is very limited. So if you want to create sources (readers for example), I strongly
+recommend using <code>vtkPythonAlgorithm</code>.</li>
+</ul>
+
+<p>I&#39;ll follow up with one or more blogs on <code>vtkPythonAlgorithm</code>.</p>
+
+<p>One final note. The callable objects also work nicely as observers. See below.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="k">class</span> <span class="nc">MyObserver</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="k">print</span> <span class="n">obj</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">(),</span> <span class="n">event</span>
+
+<span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+<span class="n">s</span><span class="o">.</span><span class="n">AddObserver</span><span class="p">(</span><span class="s">&#39;ModifiedEvent&#39;</span><span class="p">,</span> <span class="n">MyObserver</span><span class="p">())</span>
+<span class="n">s</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span></code></pre></div>
+
+<p>will print</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">vtkSphereSource</span> <span class="n">ModifiedEvent</span></code></pre></div>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/733">Kitware blog</a>.
+Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
+<a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="//2014/09/05/vtk-python-algorithm/">
+            vtkPythonAlgorithm is great
+            <small>05 Sep 2014</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="//2014/09/13/h5py-reader/">
+            Developing HDF5 readers using vtkPythonAlgorithm
+            <small>13 Sep 2014</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="//2014/08/18/vtk-python-4/">
+            Improved VTK - numpy integration (part 4)
+            <small>18 Aug 2014</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      <div class="footer">
+        <p>
+          <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

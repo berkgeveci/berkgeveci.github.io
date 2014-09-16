@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Berk Geveci &middot; All About VTK / ParaView
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+      <h3 class="masthead-title">
+      <a href="/" title="Home">Berk Geveci</a>
+
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/about">About</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/archive">Archive</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/atom.xml">Feed</a></small>
+      
+      </h3>      
+      </div>
+
+      <div class="posts">
+  
+  <div class="post">
+    <h1 class="post-title">
+      <a href="/2014/09/05/vtk-python-algorithm/">
+        vtkPythonAlgorithm is great
+      </a>
+    </h1>
+
+    <span class="post-date">05 Sep 2014</span>
+
+    <p>Here is the blog I meant to write <a href="/2014/09/02/programmable-filter/">last time</a>. In this
+blog, I will actually talk about <code>vtkPythonAlgorithm</code>. I will also cover some VTK pipeline and
+algorithm basics so those that want to start developing C++ algorithms will also benefit from
+reading it.</p>
+
+<p>As I covered previously, <code>vtkProgrammableFilter</code> is a great tool and useful for many purposes.
+However, it has the following drawbacks:</p>
+
+<ul>
+<li>Its output type is always the same as its input type. So one cannot implement filters such as a
+contour filter (which accepts a <code>vtkDataSet</code> and outputs a <code>vtkPolyData</code>) using it.</li>
+<li>It is not possible to properly manipulate pipeline execution by setting keys when using a
+<code>vtkProgrammableFilter</code>.</li>
+<li>The source counterpart of <code>vtkProgrammableFilter</code>, <code>vtkProgrammableSource</code>, is very difficult to
+use and is very limited.</li>
+</ul>
+
+<p>We developed <code>vtkPythonAlgorithm</code> to remedy these issues. At its heart, <code>vtkPythonAlgorithm</code> is
+very simple (although more complicated than <code>vtkProgrammableFilter</code>).</p>
+
+<ul>
+<li>It is an algorithm,</li>
+<li>You assign to it a Python object using <code>SetPythonObject()</code>,</li>
+<li>It calls <code>Initialize(self, vtkself)</code> on this Python object, passing a reference of itself,</li>
+<li>It delegates the following methods to the Python object:
+
+<ul>
+<li><code>ProcessRequest(self, vtkself, request, inInfo, outInfo)</code></li>
+<li><code>FillInputPortInformation(self, vtkself, port, info)</code></li>
+<li><code>FillOutputPortInformation(self, vtkself, port, info)</code></li>
+</ul></li>
+</ul>
+
+<p>By implementing some of these 4 methods in your Python class, you have access to the entire
+pipeline execution capability of VTK, including managing parallel execution, streaming, passing
+arbitrary keys up and down the pipeline etc.</p>
+
+<p>For those that are not familiar with how VTK algorithms work, it is worthwhile to explain what
+these methods do.</p>
+
+<p><strong>Initialize</strong>: The main purpose of this method is to initialize the number of input and output
+ports an algorithm has. This is normally done in a C++ algorithm&#39;s constructor. But since the
+Python object&#39;s constructor is called <em>before</em> it is passed to <code>vtkPythonAlgorithm</code>, we can&#39;t do
+it there. Hence <code>Initialize()</code>. This method takes 1 argument : the <code>vtkPythonAlgorithm</code> calling it.
+Here is a simple example:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="k">class</span> <span class="nc">MyAlgorithm</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">Initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">):</span>
+        <span class="n">vtkself</span><span class="o">.</span><span class="n">SetNumberOfInputPorts</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">vtkself</span><span class="o">.</span><span class="n">SetNumberOfOutputPorts</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span></code></pre></div>
+
+<ul>
+<li>1 input port + 1 output port == your common VTK filter.</li>
+<li>0 input port + 1 output port == your common VTK source.</li>
+<li>1 input port + 0 output port == your common VTK sink (writer, mapper etc.).</li>
+</ul>
+
+<p><strong>FillInputPortInformation and FillOutputPortInformation</strong>: These methods are overwritten to
+tell the VTK pipeline what data type an algorithm expects as input and what data type it will
+produce. This information is used to do run-time sanity checking. It can also be used to ask
+the pipeline to automatically create the output of the algorithm, if an concrete data type is
+known when the algorithm is initialized.</p>
+
+<p>Here is a simple example:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="k">class</span> <span class="nc">MyAlgorithm</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">FillInputPortInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkAlgorithm</span><span class="o">.</span><span class="n">INPUT_REQUIRED_DATA_TYPE</span><span class="p">(),</span> <span class="s">&quot;vtkDataSet&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">FillOutputPortInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_TYPE_NAME</span><span class="p">(),</span> <span class="s">&quot;vtkPolyData&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>This is a classic VTK filter that accepts a <code>vtkDataSet</code> and produces <code>vtkPolyData</code>. Think a
+contour filter, a streamline filter, a slice filter etc. Note that this is impossible to achieve
+with <code>vtkProgrammableFilter</code>, which always produces the same type of output as input.</p>
+
+<p>A few things to note here:</p>
+
+<ul>
+<li><code>port</code> is an integer referring to the index of the current input or output port. These methods
+are called once for each input and output port.</li>
+<li><code>info</code> is a key-value store object (<code>vtkInformation</code>) used to hold meta-data about the current input
+or output port. The keys are <code>vtkObject</code>s that are accessed through class methods. This allows VTK 
+to avoid any key collisions while still supporting run-time addition of keys.</li>
+<li>If the output <code>DATA_TYPE_NAME()</code> is a concrete class name, the pipeline (executive) will create
+the output data object for that port automatically before the filter executes. If it is the name of
+an abstract class, it is the developer&#39;s responsibility to create the output data object later.</li>
+</ul>
+
+<p>In addition to setting the input and output data types, these methods can be used to define
+additional properties. Here are a few:</p>
+
+<ul>
+<li><code>vtkAlgorithm.INPUT_IS_REPEATABLE()</code> : This means that a particular input port can accept
+multiple connections. Think <code>vtkAppendFilter</code>.</li>
+<li><code>vtkAlgorithm.INPUT_IS_OPTIONAL()</code> : Can be used to mark an input as optional. Which means that
+it is not an error if a connection is not made to that port.</li>
+</ul>
+
+<p><strong>ProcessRequest:</strong> This is the meat of the algorithm. This method is called for each pipeline pass
+VTK implements. It is used to ask the algorithm to create its output data object(s), to provide
+meta-data to downstream, to modify a request coming from downstream and to fill the output data
+object(s). Each of these pipeline passes are identified by the request type. Let&#39;s look at an
+example:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="k">class</span> <span class="nc">MyAlgorithm</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">ProcessRequest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDemandDrivenPipeline</span><span class="o">.</span><span class="n">REQUEST_DATA</span><span class="p">()):</span>
+            <span class="k">print</span> <span class="s">&#39;I am supposed to execute&#39;</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>The arguments need explaining:</p>
+
+<ul>
+<li><code>request</code>: What the pipeline is asking of the algorithm. Common requests are 
+
+<ul>
+<li><code>REQUEST_DATA_OBJECT()</code> : create your output data object(s)</li>
+<li><code>REQUEST_INFORMATION()</code> : provide meta-data for downstream</li>
+<li><code>REQUEST_UPDATE_EXTENT()</code> : modify any data coming from downstream or create a data request
+(for sinks)</li>
+<li><code>REQUEST_DATA()</code> : do your thing. Take input data (if any), do something with it, produce
+output data (if any)</li>
+</ul></li>
+<li><code>inInfo</code> : a list of vectors of key-value store objects (<code>vtkInformation</code>). It is a list because
+each member corresponds to an input port. The list contains vectors because each input port can
+have multiple connections.</li>
+<li><code>outInfo</code> : a vector of key-value store objects. Each entry in the vector corresponds to an
+output port.</li>
+</ul>
+
+<p>Let&#39;s put it all together</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="k">class</span> <span class="nc">MyAlgorithm</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">Initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">):</span>
+        <span class="n">vtkself</span><span class="o">.</span><span class="n">SetNumberOfInputPorts</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">vtkself</span><span class="o">.</span><span class="n">SetNumberOfOutputPorts</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">FillInputPortInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkAlgorithm</span><span class="o">.</span><span class="n">INPUT_REQUIRED_DATA_TYPE</span><span class="p">(),</span> <span class="s">&quot;vtkDataSet&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">FillOutputPortInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_TYPE_NAME</span><span class="p">(),</span> <span class="s">&quot;vtkPolyData&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">ProcessRequest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDemandDrivenPipeline</span><span class="o">.</span><span class="n">REQUEST_DATA</span><span class="p">()):</span>
+            <span class="k">print</span> <span class="s">&#39;I am supposed to execute&#39;</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+
+<span class="n">pa</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPythonAlgorithm</span><span class="p">()</span>
+<span class="n">pa</span><span class="o">.</span><span class="n">SetPythonObject</span><span class="p">(</span><span class="n">MyAlgorithm</span><span class="p">())</span>
+<span class="n">pa</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+
+<span class="n">pa</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span>
+<span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetNumberOfCells</span><span class="p">()</span></code></pre></div>
+
+<p>This will print:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">I</span> <span class="n">am</span> <span class="n">supposed</span> <span class="n">to</span> <span class="n">execute</span>
+<span class="n">vtkPolyData</span>
+<span class="mi">0</span></code></pre></div>
+
+<h2>Dealing With Data</h2>
+
+<p>Let&#39;s change <code>ProcessRequest()</code> to accept input data and produce output data.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>     <span class="k">def</span> <span class="nf">ProcessRequest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vtkself</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">2</span>         <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDemandDrivenPipeline</span><span class="o">.</span><span class="n">REQUEST_DATA</span><span class="p">()):</span>
+<span class="mi">3</span>             <span class="n">inp</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_OBJECT</span><span class="p">())</span>
+<span class="mi">4</span>             <span class="n">opt</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_OBJECT</span><span class="p">())</span>
+<span class="mi">5</span> 
+<span class="mi">6</span>             <span class="n">cf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
+<span class="mi">7</span>             <span class="n">cf</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+<span class="mi">8</span>             <span class="n">cf</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">200</span><span class="p">)</span>
+<span class="mi">9</span> 
+<span class="mi">10</span>            <span class="n">sf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkShrinkPolyData</span><span class="p">()</span>
+<span class="mi">11</span>            <span class="n">sf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">cf</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">12</span>            <span class="n">sf</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">13</span>
+<span class="mi">14</span>            <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">sf</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">15</span>        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>On line 3, we get the data object from the information object (key-value store) associated with the
+first connection of the first port (<code>inInfo[0]</code> corresponds to all connections of the first port).
+This is our input. <code>vtkDataObject.DATA_OBJECT()</code> is the key used to refer to input and output data
+objects. On line 4, we get the data object associated with the first output port. This is our
+output. Lines 6-12 create a simple pipeline. On line 14, we copy the output from the shrink filter
+to the output of the <code>vtkPythonAlgorithm</code>.</p>
+
+<p>When run, this filter will produce:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">vtkPolyData</span>
+<span class="mi">3124</span></code></pre></div>
+
+<p><strong><em>Tip:</em></strong> Lines 3 and 4 can be simplified by using convenience functions as follows.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">3</span>             <span class="n">inp</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="mi">4</span>             <span class="n">opt</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">)</span></code></pre></div>
+
+<h2>A Convenience Superclass</h2>
+
+<p><strong><em>Note:</em></strong> For what is described here, you need VTK from a very recent master. As of writing of
+this blog, VTKPythonAlgorithmBase had been in VTK git master for only a few days.</p>
+
+<p>Now that we covered the basics of <code>vtkPythonAlgorithm</code>, let me introduce a convenience class that
+makes algorithms development a bit more convenient. Let&#39;s start with updating our previous example.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>   <span class="kn">import</span> <span class="nn">vtk</span>
+<span class="mi">2</span>   <span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
+<span class="mi">3</span>   
+<span class="mi">4</span>   <span class="k">class</span> <span class="nc">ContourShrink</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="mi">5</span>       <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="mi">6</span>           <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+<span class="mi">7</span>   
+<span class="mi">8</span>       <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">9</span>           <span class="n">inp</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="mi">10</span>          <span class="n">opt</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">)</span>
+<span class="mi">11</span>  
+<span class="mi">12</span>          <span class="n">cf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
+<span class="mi">13</span>          <span class="n">cf</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+<span class="mi">14</span>          <span class="n">cf</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">200</span><span class="p">)</span>
+<span class="mi">15</span>  
+<span class="mi">16</span>          <span class="n">sf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkShrinkPolyData</span><span class="p">()</span>
+<span class="mi">17</span>          <span class="n">sf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">cf</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">18</span>          <span class="n">sf</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">19</span>  
+<span class="mi">20</span>          <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">sf</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">21</span>  
+<span class="mi">22</span>          <span class="k">return</span> <span class="mi">1</span>
+<span class="mi">23</span>  
+<span class="mi">24</span>  <span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="mi">25</span>  
+<span class="mi">26</span>  <span class="n">pa</span> <span class="o">=</span> <span class="n">ContourShrink</span><span class="p">()</span>
+<span class="mi">27</span>  <span class="n">pa</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">28</span>  
+<span class="mi">29</span>  <span class="n">pa</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">30</span>  <span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span>
+<span class="mi">31</span>  <span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetNumberOfCells</span><span class="p">()</span></code></pre></div>
+
+<p>Neat huh? I am not going to explain how this works under the covers because it is a bit convoluted.
+Suffice it to say that you can subclass <code>VTKPythonAlgorithmBase</code> to overwrite a number of methods
+and also treat it as a <code>vtkPythonAlgorithm</code>. In fact, it is a subclass of <code>vtkPythonAlgorithm</code>.
+The methods available to be overwritten are:</p>
+
+<ul>
+<li><code>FillInputPortInformation(self, port, info)</code> : Same as described above. Except <code>self == vtkself</code>.</li>
+<li><code>FillOutputPortInformation(self, port, info)</code> : Same as described above. Except <code>self == vtkself</code>.</li>
+<li><code>RequestDataObject(self, request, inInfo, outInfo)</code> : This is where you can create output
+data objects if the output <code>DATA_TYPE_NAME()</code> is not a concrete type.</li>
+<li><code>RequestInformation(self, request, inInfo, outInfo)</code> : Provide meta-data downstream. More on this
+on later blogs.</li>
+<li><code>RequestUpdateExtent(self, request, inInfo, outInfo)</code> : Modify requests coming from downstream.
+More on this on later blogs.</li>
+<li><code>RequestData(self, request, inInfo, outInfo)</code> : Produce data. As described before.</li>
+</ul>
+
+<p>In addtion, you can use the constructor to manage the number of input and output ports the static
+input and output types (rather than overwriting <code>FillInputPortInformation()</code> and
+<code>FillOutputPortInformation()</code>). For example, we could have done this:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">ContourShrink</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkDataSet&#39;</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span></code></pre></div>
+
+<p>We didn&#39;t have to do this in our example because these happen to be the default values.</p>
+
+<p><strong><em>Important</em></strong>: You have to define an <code>__init__()</code> method that chains to <code>VTKPythonAlgorithmBase</code>
+for all of this to work. Don&#39;t leave it out!</p>
+
+<h2>Adding Parameters</h2>
+
+<p>This blog has gotten long. Let&#39;s look at one more capability to wrap up. Say you want to change the
+contour value or the shrink factor. You could of course edit the class every time but since that&#39;s
+lame, you&#39;d probably rather use methods. There are a few things to know to get this right. Here is
+an updated version:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>   <span class="kn">import</span> <span class="nn">vtk</span>
+<span class="mi">2</span>   <span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
+<span class="mi">3</span>   
+<span class="mi">4</span>   <span class="k">class</span> <span class="nc">ContourShrink</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="mi">5</span>       <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="mi">6</span>           <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+<span class="mi">7</span>               <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkDataSet&#39;</span><span class="p">,</span>
+<span class="mi">8</span>               <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span>
+<span class="mi">9</span>   
+<span class="mi">10</span>          <span class="bp">self</span><span class="o">.</span><span class="n">__ShrinkFactor</span> <span class="o">=</span> <span class="mf">0.5</span>
+<span class="mi">11</span>          <span class="bp">self</span><span class="o">.</span><span class="n">__ContourValue</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="mi">12</span>  
+<span class="mi">13</span>      <span class="k">def</span> <span class="nf">SetShrinkFactor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">factor</span><span class="p">):</span>
+<span class="mi">14</span>          <span class="k">if</span> <span class="n">factor</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__ShrinkFactor</span><span class="p">:</span>
+<span class="mi">15</span>              <span class="bp">self</span><span class="o">.</span><span class="n">__ShrinkFactor</span> <span class="o">=</span> <span class="n">factor</span>
+<span class="mi">16</span>              <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+<span class="mi">17</span>  
+<span class="mi">18</span>      <span class="k">def</span> <span class="nf">GetShrinkFactor</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="mi">19</span>          <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__ShrinkFactor</span>
+<span class="mi">20</span>  
+<span class="mi">21</span>      <span class="k">def</span> <span class="nf">SetContourValue</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+<span class="mi">22</span>          <span class="k">if</span> <span class="n">value</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__ContourValue</span><span class="p">:</span>
+<span class="mi">23</span>              <span class="bp">self</span><span class="o">.</span><span class="n">__ContourValue</span> <span class="o">=</span> <span class="n">value</span>
+<span class="mi">24</span>              <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+<span class="mi">25</span>  
+<span class="mi">26</span>      <span class="k">def</span> <span class="nf">GetContourValue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="mi">27</span>          <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__ContourValue</span>
+<span class="mi">28</span>  
+<span class="mi">29</span>      <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">30</span>          <span class="k">print</span> <span class="s">&#39;Executing&#39;</span>
+<span class="mi">31</span>          <span class="n">inp</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="mi">32</span>          <span class="n">opt</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">)</span>
+<span class="mi">33</span>  
+<span class="mi">34</span>          <span class="n">cf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
+<span class="mi">35</span>          <span class="n">cf</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+<span class="mi">36</span>          <span class="n">cf</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__ContourValue</span><span class="p">)</span>
+<span class="mi">37</span>  
+<span class="mi">38</span>          <span class="n">sf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkShrinkPolyData</span><span class="p">()</span>
+<span class="mi">39</span>          <span class="n">sf</span><span class="o">.</span><span class="n">SetShrinkFactor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__ShrinkFactor</span><span class="p">)</span>
+<span class="mi">40</span>          <span class="n">sf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">cf</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">41</span>          <span class="n">sf</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">42</span>  
+<span class="mi">43</span>          <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">sf</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">44</span>  
+<span class="mi">45</span>          <span class="k">return</span> <span class="mi">1</span>
+<span class="mi">46</span>  
+<span class="mi">47</span>  <span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="mi">48</span>  
+<span class="mi">49</span>  <span class="n">pa</span> <span class="o">=</span> <span class="n">ContourShrink</span><span class="p">()</span>
+<span class="mi">50</span>  <span class="n">pa</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="mi">51</span>  
+<span class="mi">52</span>  <span class="n">pa</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">53</span>  <span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span>
+<span class="mi">54</span>  <span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetNumberOfCells</span><span class="p">()</span>
+<span class="mi">55</span>  
+<span class="mi">56</span>  <span class="n">pa</span><span class="o">.</span><span class="n">SetShrinkFactor</span><span class="p">(</span><span class="mf">0.7</span><span class="p">)</span>
+<span class="mi">57</span>  <span class="n">pa</span><span class="o">.</span><span class="n">SetContourValue</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>
+<span class="mi">58</span>  <span class="n">pa</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">59</span>  <span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span>
+<span class="mi">60</span>  <span class="k">print</span> <span class="n">pa</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetNumberOfCells</span><span class="p">()</span></code></pre></div>
+
+<p>This will print the following.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">Executing</span>
+<span class="n">vtkPolyData</span>
+<span class="mi">3124</span>
+<span class="n">Executing</span>
+<span class="n">vtkPolyData</span>
+<span class="mi">2516</span></code></pre></div>
+
+<p>There are a few things to note here:</p>
+
+<ul>
+<li>Instead of directly setting data members, we used setters and getters. The main reason behind
+this is what happens on lines 16 and 24. Unless you call <code>Modified()</code> as shown, the filter will
+not re-execute after you change a value.</li>
+<li>We did not use Python properties for <code>ShrinkFactor</code> and <code>ContourValue</code>. As nice as this would have
+been, it is not currently possible. This is because <code>VTKPythonAlgorithmBase</code> derives from a wrapped
+VTK class, which does not support properties. Properties are only supported by class that descend
+from <code>object</code>.</li>
+<li>It is good practice to do the values comparisons on lines 14 and 22 to avoid unnecessary
+re-execution of the filter.</li>
+</ul>
+
+<h2>Next</h2>
+
+<p>We have covered a lot of ground. In my next blog, I will put what we learned to use to develop
+a simple HDF5 reader. We will cover cool concepts such as providing meta-data in a reader and asking
+for a subset in a filter. Until then cheers.</p>
+
+<p>Special thanks to Ben Boeckel who developed <code>vtkPythonAlgorithm</code>.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/737">Kitware blog</a>.
+Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
+<a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
+
+  </div>
+  
+</div>
+
+<div class="pagination">
+  
+    <a class="pagination-item older" href="/page3">Older</a>
+  
+  
+    
+      <a class="pagination-item newer" href="/">Newer</a>
+    
+  
+</div>
+
+
+      <div class="footer">
+        <p>
+          <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Sending and receiving VTK data objects using MPI &middot; Berk Geveci
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+      <h3 class="masthead-title">
+      <a href="/" title="Home">Berk Geveci</a>
+
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/about">About</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/archive">Archive</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/atom.xml">Feed</a></small>
+      
+      </h3>      
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Sending and receiving VTK data objects using MPI</h1>
+  <span class="post-date">21 Aug 2014</span>
+  <p>Someone asked me on Twitter if it is possible to send VTK objects to slave nodes using mpi4py. The
+answer is sometimes. In the most general case, you need to use something like
+<a href="http://docs.enthought.com/mayavi/tvtk/">tvtk</a> to make use of mpi4py&#39;s ability to send/receive any
+pickled Python object. Even then, tvtk does not pickle references to other VTK objects so you can&#39;t
+send an arbitrary graph of objects using mpi4py.</p>
+
+<p>In the less general case, one can use VTK communicators to send/receive data objects. Here is a
+simple example:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
+
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
+    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
+
+<p>See the documentation for <code>vtkMultiProcessController</code> and <code>vtkMPIController</code> to see which methods
+are available in C++. Note that not all of these methods are accessible in Python. It is also
+possible to broadcast a data object as follows.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
+
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+
+<span class="n">c</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
+
+<p>Both of these methods depend on serializing a data object to a buffer using writers and reading
+back using readers. The legacy readers and writers are used for this. Here is how one can
+directly use this marshaling/unmarshaling capability with mpi4py:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
+<span class="n">comm</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">ca</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCharArray</span><span class="p">()</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">MarshalDataObject</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="n">ca</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">ca</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sz</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
+    <span class="n">buff</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">sz</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">buff</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">])</span>
+    <span class="n">pd</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">UnMarshalDataObject</span><span class="p">(</span><span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="n">buff</span><span class="p">),</span> <span class="n">pd</span><span class="p">)</span>
+    <span class="k">print</span> <span class="n">pd</span></code></pre></div>
+
+<p>It would be fairly easy to extend this example to use non-blocking communication methods
+available in MPI.</p>
+
+<p>Finally, here is a list of data object types that are supported by the marshaling code:</p>
+
+<ul>
+<li>VTK<em>DIRECTED</em>GRAPH</li>
+<li>VTK<em>UNDIRECTED</em>GRAPH</li>
+<li>VTK<em>IMAGE</em>DATA</li>
+<li>VTK<em>POLY</em>DATA</li>
+<li>VTK<em>RECTILINEAR</em>GRID</li>
+<li>VTK<em>STRUCTURED</em>GRID</li>
+<li>VTK<em>STRUCTURED</em>POINTS</li>
+<li>VTK_TABLE</li>
+<li>VTK_TREE</li>
+<li>VTK<em>UNSTRUCTURED</em>GRID</li>
+<li>VTK<em>MULTIBLOCK</em>DATA_SET</li>
+<li>VTK<em>UNIFORM</em>GRID_AMR</li>
+</ul>
+
+<p>I hope that this answers the question.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/721">Kitware blog</a>.
+Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
+<a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="//2014/08/12/mpi4py/">
+            mpi4py and VTK
+            <small>12 Aug 2014</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="//2014/08/18/vtk-python-4/">
+            Improved VTK - numpy integration (part 4)
+            <small>18 Aug 2014</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="//2014/09/05/vtk-python-algorithm/">
+            vtkPythonAlgorithm is great
+            <small>05 Sep 2014</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      <div class="footer">
+        <p>
+          <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Berk Geveci &middot; All About VTK / ParaView
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+      <h3 class="masthead-title">
+      <a href="/" title="Home">Berk Geveci</a>
+
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/about">About</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/archive">Archive</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/atom.xml">Feed</a></small>
+      
+      </h3>      
+      </div>
+
+      <div class="posts">
+  
+  <div class="post">
+    <h1 class="post-title">
+      <a href="/2014/08/27/vtk-plans/">
+        VTK - my perspective on direction and upcoming developments
+      </a>
+    </h1>
+
+    <span class="post-date">27 Aug 2014</span>
+
+    <p>We have been having great discussions on the VTK developers mailing list about <a href="http://vtk.markmail.org/thread/3c43valhsqm66jnl">encouraging new
+developers to join VTK</a> and about <a href="http://vtk.markmail.org/thread/fjn3akb5y2fnfjve">keeping
+existing contributors engaged</a>. Here is a great
+quote from one of David Gobbi&#39;s emails:</p>
+
+<blockquote>
+<p>Community engagement requires:</p>
+
+<ul>
+<li><p>Responsive communication.  You don&#39;t need to always have the answer,
+you just need to not be silent.</p></li>
+<li><p>Dedication.  Share your dreams and show that you care about the
+future.  Help your employees to do the same.</p></li>
+<li><p>Transparency.  Lay out the roadmap for all to see.  Summarize
+important development meetings on the wiki.</p></li>
+</ul>
+</blockquote>
+
+<p>Here is my attempt to addressing the dedication and transparency parts. At Kitware, we have been
+doing some wonderful things with and to VTK and we plan doing much more. We have not been great at
+communicating these however. Here is a quick summary of things that I have been involved in doing and planning.</p>
+
+<h2>Overhaul of the rendering infrastructure:</h2>
+
+<p>We are renovating geometry and volume rendering in VTK. The goal is to move to a much more modern
+OpenGL implementation and to support mobile platforms through OpenGL ES. See <a href="http://www.kitware.com/source/home/post/144">Marcus&#39;
+blog</a> on the geometry side of the work. Volume
+rendering blog is in the works. This is part of a larger effort under the VTK Maintenance Grant
+from NIH. See <a href="http://vtk.markmail.org/thread/nyultqo5ayn7tqtm">here</a> for details.</p>
+
+<h2>Improved multi-threaded execution</h2>
+
+<p>We have introduced a new infrastructure to support the development of multi-threaded algorithms in
+VTK. The goal is to support structured and unstructured data. See <a href="http://www.vtk.org/Wiki/VTK/VTK_SMP">this
+document</a> for a summary of initial work. These are just the
+first steps. We plan on doing much more in the near future.</p>
+
+<h2>Improved data model</h2>
+
+<p>This is a broad category that covers many things such as no-copy data adaptors for <em>in situ</em>
+analysis ([<a href="http://www.kitware.com/blog/home/post/577">1</a>], [<a href="http://www.vtk.org/Wiki/VTK/InSituDataStructures">2</a>]) to better support for ghost arrays and blanking. Some of our
+goals include</p>
+
+<ul>
+<li><p>Support for correctness in distributed filters (better support for blanking and ghosts)</p></li>
+<li><p>Support for more dataset types</p></li>
+<li><p>Support for different memory layouts for same dataset types</p></li>
+<li><p>More efficient APIs</p></li>
+<li><p>Better support for thread safety</p></li>
+</ul>
+
+<p>This will be an area of strong focus in the coming years.</p>
+
+<h2>Better pipeline support for distributed parallel execution</h2>
+
+<p>See <a href="http://www.vtk.org/Wiki/VTK/Parallel_Pipeline">this document</a> for some recent work on this.
+There are some aspects of the data parallel pipeline that do not work well with all filter and
+data types. For example, the imaging pipeline and its extent based streaming mechanism did
+not always work well when mixed with piece based parallelism. We made some progress in addressing
+these issues but there is more work. One particular pet peeve of mine is how the imaging filters
+do allocation of the output before <code>RequestData()</code> requiring all meta-data about scalars etc. be
+available during <code>RequestInformation()</code>. I&#39;d like to see meta-data be optional - if it is there, great, use it for optimization, if not, do the slow path if necessary. This would make dealing
+with mixed imaging and unstructured pipelines as well as multi-block datasets easier.</p>
+
+<h2>Better data model and pipeline support for multi-resolution streaming</h2>
+
+<p>The goal being supporting hiearchical datasets (octrees of volumes or particles for example) that
+can be streamed in an adaptive way through the pipeline. Most of the key infrastructure for this
+is already in place. We need some formalization around information keys, data layouts in composite
+datasets, reader interfaces etc.</p>
+
+<h2>Better pipeline support for ensemble datasets</h2>
+
+<p>Think of ensemble datasets as an arbitrary collection of related datasets. They may be generated by
+traversing an input parameter space in a simulation, by injecting various types on uncertainty to a
+simulation or be running the same simulation using different models. The common goals for the
+analysis and visualization of ensemble datasets are comparative visualization, linked parameter
+space - ensemble member visualization, statistical analysis of ensemble members and uncertainty
+visualization. Scientific data is rarely a single dataset these days and VTK needs to expand to
+provide first class support to ensembles. We made some progress towards improvements in the pipeline
+to support streaming of ensemble datasets (which I will write about in the future) but there is a
+lot more work to be done.</p>
+
+<h2>Improved numpy integration</h2>
+
+<p>VTK has had a decent relationship with Python and numpy for a long time. However, things could
+be much better. We recently migrated ParaView&#39;s numpy integration code to VTK and made some
+significant improvements to it. Although I call this work &quot;numpy integration&quot;, it is much more than
+simply expositing VTK arrays as numpy arrays. VTK brings a full-featured data model that goes
+beyond n-dimensional arrays to the picture. Plus the code in VTK fully supports distributed
+parallelism and can support other types of parallelism such as multi-threaded parallelism,
+vector parallelism and GPU acceleration as applied to its data model. How we can expose some of
+this functionality while maintaining numpy-style ease-of-use is something we are likely to focus
+on in the future.</p>
+
+<h2>Fixes to executives</h2>
+
+<p>Executives have grown organically and collected a lot of gunk. We need to clean them up to make
+them more accessible to developers. They need to be easily understood and expanded. We also have
+some issues in pipeline traversal that become problematic when dealing diamond-shaped pipelines.</p>
+
+<p>This is a partial list. There is a lot more improvements that will likely be made at the dataset
+and algorithm level. Also, I only focused on work that I am pretty familiar with. I hope that
+others will chime in and add their perspective to mine.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/728">Kitware blog</a>.
+Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
+<a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
+
+  </div>
+  
+</div>
+
+<div class="pagination">
+  
+    <a class="pagination-item older" href="/page5">Older</a>
+  
+  
+    
+      <a class="pagination-item newer" href="/page3">Newer</a>
+    
+  
+</div>
+
+
+      <div class="footer">
+        <p>
+          <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>
