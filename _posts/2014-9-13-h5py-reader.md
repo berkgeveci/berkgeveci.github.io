@@ -134,7 +134,7 @@ With this addition, we get the following result (click on the picture to see the
 animation).
 
 <figure>
-<img src="{{ site.url }}/assets/image60.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="{{ site.url }}/assets/rtdata-anim.gif"'/>
+<img src="/assets/image60.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/rtdata-anim.gif"'/>
 </figure>
 
 As I discussed previously, `RequestInformation` provides meta-data downstream. This meta-data is
@@ -280,7 +280,7 @@ for xfreq in range(60, 80):
 This will produce the following (click on the picture to see the animation).
 
 <figure>
-<img src="{{ site.url }}/assets/image60-2.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="{{ site.url }}/assets/rtdata-anim-2.gif"'/>
+<img src="/assets/image60-2.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/rtdata-anim-2.gif"'/>
 </figure>
 
 We now have a fairly complex reader in our hands. With some digging through h5py's documentation
