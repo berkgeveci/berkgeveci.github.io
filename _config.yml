@@ -29,4 +29,4 @@ pages_list:
     Archive : '/archive'
     Feed : '/atom.xml'
 
-exclude:    [Rakefile]
+exclude:    [Rakefile, code]
