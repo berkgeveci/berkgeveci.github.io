@@ -4,13 +4,455 @@
  <title>Berk Geveci</title>
  <link href="http://localhost:4000/atom.xml" rel="self"/>
  <link href="http://localhost:4000/"/>
- <updated>2014-09-16T08:11:40-04:00</updated>
+ <updated>2014-10-04T15:22:01-04:00</updated>
  <id>http://localhost:4000</id>
  <author>
    <name>Berk Geveci</name>
    <email>berk.geveci@kitware.com</email>
  </author>
 
+ 
+ <entry>
+   <title>VTK issue hackathon</title>
+   <link href="http://localhost:4000//2014/10/04/issue-hackathon/"/>
+   <updated>2014-10-04T00:00:00-04:00</updated>
+   <id>http://localhost:4000/2014/10/04/issue-hackathon</id>
+   <content type="html">&lt;p&gt;On October 2nd 2014, we held a hackathon to reduce the number of issues in the VTK bug
+tracker in anticipation of VTK&amp;#39;s migration to a new bug tracker (as part of migrating to
+Gitlab probably). We also hope to come to a place where we triage bugs early and keep
+the issue tracker relatively clean.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/hackathon.jpg&quot; alt=&quot;VTK issue hackathon&quot;&gt;&lt;/p&gt;
+
+&lt;p&gt;Here is the attendance list as far as I can tell:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Ken Martin&lt;/li&gt;
+&lt;li&gt;Bill Lorensen&lt;/li&gt;
+&lt;li&gt;Will Schroeder&lt;/li&gt;
+&lt;li&gt;Bill Hoffman&lt;/li&gt;
+&lt;li&gt;Berk Geveci&lt;/li&gt;
+&lt;li&gt;Shawn Waldon&lt;/li&gt;
+&lt;li&gt;Chuck Atkins&lt;/li&gt;
+&lt;li&gt;Marcus Hanwell&lt;/li&gt;
+&lt;li&gt;Utkarsh Ayachit&lt;/li&gt;
+&lt;li&gt;Andy Bauer&lt;/li&gt;
+&lt;li&gt;Ben Boeckel&lt;/li&gt;
+&lt;li&gt;Dave DeMarle&lt;/li&gt;
+&lt;li&gt;Cory Quammen&lt;/li&gt;
+&lt;li&gt;David Gobbi&lt;/li&gt;
+&lt;li&gt;David Cole&lt;/li&gt;
+&lt;li&gt;Sean McBride&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;It was awesome working alongside these brilliant folks to improve VTK. Of
+course, we had to occasionally poke fun at the original developers (all 3 were
+there!) and blame them for some of the issues; all in good fun.&lt;/p&gt;
+
+&lt;p&gt;Before the hackathon, we had 189 open bugs. After the hackathon, we have 118 bugs.
+But that&amp;#39;s not all, there is still a lot of code in Gerrit review. So if we include
+those, we are down to 91 bugs! So we closed a whopping 98 bugs in 1 day. To be fair,
+we closed many bugs because they were already fixed or contained feature requests that
+we didn&amp;#39;t want to implement but we also fixed a large number of real issues. To see the 
+list of bugs that we closed, check out &lt;a href=&quot;http://tinyurl.com/lrznr6w&quot;&gt;this link&lt;/a&gt; and look
+at the bugs that were closed around 10/2 2014. This list will grow as the changes
+currently in Gerrit review makes into master. The icing on the cake is that we have
+very little dashboard issues that resulted from the hackathon. Those should be resolved
+very soon.&lt;/p&gt;
+
+&lt;p&gt;After the hackathon, some of us went to &lt;a href=&quot;http://saltyspub.com/&quot;&gt;Salty&amp;#39;s&lt;/a&gt; for some
+grub and beers. Overall very successful and fun hackathon. I am already looking forward
+to the next one.&lt;/p&gt;
+</content>
+ </entry>
+ 
+ <entry>
+   <title>A VTK pipeline primer (part 1)</title>
+   <link href="http://localhost:4000//2014/09/18/pipeline/"/>
+   <updated>2014-09-18T00:00:00-04:00</updated>
+   <id>http://localhost:4000/2014/09/18/pipeline</id>
+   <content type="html">&lt;p&gt;In my last two blogs (&lt;a href=&quot;/2014/09/05/vtk-python-algorithm/&quot;&gt;1&lt;/a&gt;,
+&lt;a href=&quot;/2014/09/13/h5py-reader/&quot;&gt;2&lt;/a&gt;), I introduced the &lt;code&gt;vtkPythonAlgorithm&lt;/code&gt;
+and started demonstrating how it can be used to develop sources and algorithms
+in Python. In those articles, I touched on a few VTK pipeline concepts. For
+those are not familiar with VTK&amp;#39;s pipeline, this may have been somewhat hard
+to follow. So in this article and the next, I will take a step back and explain 
+how VTK&amp;#39;s pipeline works in more detail.&lt;/p&gt;
+
+&lt;h2&gt;Preliminaries&lt;/h2&gt;
+
+&lt;h3&gt;&lt;code&gt;vtkInformation&lt;/code&gt; and &lt;code&gt;vtkInformationVector&lt;/code&gt;&lt;/h3&gt;
+
+&lt;p&gt;These two classes are used all over the VTK: in algorithms, in executives,
+in data objects. They were developed by Brad King when we overhauled the VTK
+pipeline in VTK 4. Conceptually, they are simply maps. The key is a pointer
+to an instance of a &lt;code&gt;vtkInformationKey&lt;/code&gt; (or of a subclass) and the value is an
+instance of &lt;code&gt;vtkObjectBase&lt;/code&gt; (or of a subclass). Let&amp;#39;s start with an example.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;   &lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;vtk&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;   &lt;span class=&quot;kn&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;vtk.util&lt;/span&gt; &lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;   
+&lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;   &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;MakeKey&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ObjectBaseKey&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;a new key&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;some class&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;   &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;key:&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;6&lt;/span&gt;   
+&lt;span class=&quot;mi&quot;&gt;7&lt;/span&gt;   &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkInformation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;   &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;info:&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;9&lt;/span&gt;   
+&lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;  &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;11&lt;/span&gt;  &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;info after set:&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This will print the following.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;key:
+vtkInformationObjectBaseKey &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7f8390698680&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Reference Count: 1
+
+info:
+vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7f8390466ff0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 51
+  Reference Count: 1
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+
+info after &lt;span class=&quot;nb&quot;&gt;set&lt;/span&gt;:
+vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7f8390466ff0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 54
+  Reference Count: 1
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  a new key: vtkObject&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7f839069b130&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;On line 4, we created a new key type. Most often you will use existing keys but it
+is useful to know how to create them. This key has a name &lt;code&gt;a new key&lt;/code&gt; and location
+&lt;code&gt;some class&lt;/code&gt;. The latter is usually the name of the class this key is accessed from.
+More on that later. One line 7, we create an empty information object. On line 10,
+we add a new &lt;code&gt;vtkObject&lt;/code&gt; to the information object. Not that line 10 looks backwards
+and it feels more natural to do the following instead.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;Both of these work. We&amp;#39;ll see below why. As I mentioned above, the values stored
+in an information object are all &lt;code&gt;vtkObjectBase&lt;/code&gt; and subclass instances. However,
+it is relatively easy to store simple types by wrapping them with simple
+&lt;code&gt;vtkObjectBase&lt;/code&gt; subclasses. For example, we can store integers easily as below.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;MakeKey&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;IntegerKey&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;another key&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;some class&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;12&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This prints&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc3f0db0c80&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 55
+  Reference Count: 1
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  a new key: vtkObject&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7f8078e87be0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  another key: 12&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This example may have made it a bit more clear why the methods to set values
+on information objects are in the key classes. Using the keys&amp;#39; API to set
+values enables us to store multiple types without having to make
+&lt;code&gt;vtkInformation&lt;/code&gt; aware of all types. As long as it can wrap a value or a set
+of values in a subclass of &lt;code&gt;vtkObjectBase&lt;/code&gt;, a key can store data of any type.
+On the other hand, &lt;code&gt;vtkInformation&lt;/code&gt; can only provide the API for the key types
+it is aware of. You can verify this by checking out &lt;code&gt;vtkInformation.h&lt;/code&gt;. It has
+individual set/get methods for each key type it recognizes. Since most of the
+code that interact with information objects use already defined key types, you
+will see the &lt;code&gt;information.Set(key, value)&lt;/code&gt; signature much more often. If you
+define your own key type, you will have to use the &lt;code&gt;key.Set(information,
+value)&lt;/code&gt; signature.&lt;/p&gt;
+
+&lt;p&gt;Most often, you will access existing keys rather than create new ones. Keys
+created in C++ usually exist with the scope of a class and are accessed by
+calling a static member function. Like so:&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkInformation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkStreamingDemandDrivenPipeline&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;UPDATE_PIECE_NUMBER&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkStreamingDemandDrivenPipeline&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;UPDATE_PIECE_NUMBER&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This will print the following.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;vtkInformationIntegerKey &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fe688c8fa50&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Reference Count: 1
+
+vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fe688e4ff80&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 66
+  Reference Count: 1
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  UPDATE_PIECE_NUMBER: 1&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;When writing code in C++, you can use various macros to create keys. For example,
+&lt;code&gt;vtkStreamingDemandDrivenPipeline.UPDATE_PIECE_NUMBER()&lt;/code&gt; is created using the
+following.&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;vtkStreamingDemandDrivenPipeline.h:&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;&lt;span class=&quot;k&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtkInformationIntegerKey&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;UPDATE_PIECE_NUMBER&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;ul&gt;
+&lt;li&gt;vtkStreamingDemandDrivenPipeline.cxx:&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;&lt;span class=&quot;n&quot;&gt;vtkInformationKeyMacro&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkStreamingDemandDrivenPipeline&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;UPDATE_PIECE_NUMBER&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;code&gt;vtkInformationVector&lt;/code&gt; is a simple vector of &lt;code&gt;vtkInformation&lt;/code&gt; objects. Here
+is a demonstration.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;MakeKey&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;IntegerKey&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;another key&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&amp;quot;some class&amp;quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;iv&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkInformationVector&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;i1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkInformation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;i1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;iv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Append&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;i2&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkInformation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;i2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;iv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Append&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iv&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;range&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;iv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetInformationObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This will print the following.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;vtkInformationVector &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7ff513e40f10&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 56
+  Reference Count: 1
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Number of Information Objects: 2
+  Information Objects:
+    vtkInformation&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7ff513d33c10&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;:
+      Debug: Off
+      Modified Time: 60
+      Reference Count: 2
+      Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+      another key: 10
+    vtkInformation&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7ff513e42230&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;:
+      Debug: Off
+      Modified Time: 63
+      Reference Count: 2
+      Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+      another key: 20
+
+
+vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7ff513d33c10&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 60
+  Reference Count: 2
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  another key: 10
+
+
+vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7ff513e42230&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 63
+  Reference Count: 2
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  another key: 20&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;h3&gt;Connecting algorithms to create pipelines&lt;/h3&gt;
+
+&lt;p&gt;Next, let&amp;#39;s check out how algorithms are connected together to form
+pipelines. Below is a simple pipeline consisting of 2 sources (s0 and s1)
+and 3 filters (f0, f1 and f2).&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/example-pipeline.png&quot; alt=&quot;example pipeline&quot; style=&quot;width: 600px; margin-left:auto; margin-right: auto&quot;/&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;During execution, data flows in the direction of the arrows,&lt;/li&gt;
+&lt;li&gt;s0, s1 and s2 are simple sources with 1 output each,&lt;/li&gt;
+&lt;li&gt;f0 is a filter with 2 inputs and 1 output. The first input (input 0) is repeatable,&lt;/li&gt;
+&lt;li&gt;f1 and f2 are simple filters with 1 input and 1 output.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The code to create this pipeline would look something like this:&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;n&quot;&gt;s0&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Source&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;s1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Source&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;s2&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Source&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;f0&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Filter0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;f0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AddInputConnection&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;s0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetOutputPort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;f0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AddInputConnection&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;s1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetOutputPort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;f0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;SetInputConnection&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;s2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetOutputPort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;f1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Filter1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;f1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;SetInputConnection&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;f0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetOutputPort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;f2&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Filter1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;f2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;SetInputConnection&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;f0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetOutputPort&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This is enough detail about the pipeline for now. We&amp;#39;ll cover the pipeline
+execution order and passes in the next blog. Let&amp;#39;s see what each of these
+algorithm classes looks like.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Source:&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;kn&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;vtk.util.vtkAlgorithm&lt;/span&gt; &lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Source&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;nInputPorts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;nOutputPorts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outputType&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;#39;vtkPolyData&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;RequestData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outInfo&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetInformationObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkPolyData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;When the pipeline is updated with &lt;code&gt;f1.Update()&lt;/code&gt; or &lt;code&gt;f2.Update()&lt;/code&gt;, the
+&lt;code&gt;Source&lt;/code&gt; instances will print the following 3 times.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;vtkInformation &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fb87263a8b0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 610
+  Reference Count: 3
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  PRODUCER: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fb872638730&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0
+  UPDATE_EXTENT_INITIALIZED: 0
+  UPDATE_PIECE_NUMBER: 0
+  UPDATE_NUMBER_OF_PIECES: 1
+  UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+  DATA_OBJECT: vtkPolyData&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fb8726428c0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  CONSUMERS: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fb8726397d0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This class is pretty self-explanatory. Note how in &lt;code&gt;RequestData()&lt;/code&gt;,
+there is a direct relationship between the contents of &lt;code&gt;inInfo&lt;/code&gt; and
+the input connections and &lt;code&gt;outInfo&lt;/code&gt; and output connections.  In the
+cae of a source, &lt;code&gt;outInfo&lt;/code&gt;, which is a &lt;code&gt;vtkInformationVector&lt;/code&gt; contains
+only one &lt;code&gt;vtkInformation&lt;/code&gt; object corresponding to the only output.
+&lt;code&gt;InInfo&lt;/code&gt; on the other hand will be empty since this is a source and
+has no input ports.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Filter1:&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Filter1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;nInputPorts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inputType&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;#39;vtkPolyData&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;nOutputPorts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outputType&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;#39;vtkPolyData&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;RequestData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetInformationObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;nb&quot;&gt;input&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkPolyData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outInfo&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetInformationObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkPolyData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;This is also fairly straightforward. A filter with one input and one output.
+&lt;code&gt;InInfo&lt;/code&gt; will contain one &lt;code&gt;vtkInformationVector&lt;/code&gt; (first input port) which will
+contain one &lt;code&gt;vtkInformation&lt;/code&gt; (first and the only connection).&lt;/p&gt;
+
+&lt;p&gt;Finally, let&amp;#39;s look at &lt;code&gt;Filter0&lt;/code&gt;, which is the most complicated algorithm
+in the example:&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Filter0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;VTKPythonAlgorithmBase&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;nInputPorts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inputType&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;#39;vtkPolyData&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;nOutputPorts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outputType&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;#39;vtkPolyData&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;FillInputPortInformation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkAlgorithm&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;INPUT_IS_REPEATABLE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;RequestData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inInfo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetInformationObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;nb&quot;&gt;input&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkPolyData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;info&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;outInfo&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetInformationObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vtk&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vtkPolyData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GetData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;Overall, this algorithm still looks fairly simple. Its one unusual attribute
+is how it sets the first port to be repeatable in &lt;code&gt;FillInputPortInformation&lt;/code&gt;.
+This means that this port can accept an arbitrary number of connections, which
+are established using &lt;code&gt;AddInputConnection()&lt;/code&gt;. The most common example of such
+an algorithm is &lt;code&gt;vtkAppendFilter&lt;/code&gt;. This filter accepts multiple inputs, which
+it appends together to produce 1 output.&lt;/p&gt;
+
+&lt;p&gt;When the pipeline is updated, this will print the following.&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;&lt;span class=&quot;o&quot;&gt;((&lt;/span&gt;vtkInformationVector&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;0x11665b830, &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;vtkInformationVector&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;0x11665b8f0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+vtkInformationVector &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058be30&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 123
+  Reference Count: 2
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Number of Information Objects: 2
+  Information Objects:
+    vtkInformation&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058bef0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;:
+      Debug: Off
+      Modified Time: 666
+      Reference Count: 2
+      Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+      CONSUMERS: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058ae10&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0
+      PRODUCER: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc520589d70&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0
+      UPDATE_EXTENT_INITIALIZED: 0
+      UPDATE_PIECE_NUMBER: 0
+      UPDATE_NUMBER_OF_PIECES: 1
+      UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+      DATA_OBJECT: vtkPolyData&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc520593f00&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+    vtkInformation&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058d2d0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;:
+      Debug: Off
+      Modified Time: 700
+      Reference Count: 2
+      Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+      CONSUMERS: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058ae10&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0
+      PRODUCER: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058c2b0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0
+      UPDATE_EXTENT_INITIALIZED: 0
+      UPDATE_PIECE_NUMBER: 0
+      UPDATE_NUMBER_OF_PIECES: 1
+      UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+      DATA_OBJECT: vtkPolyData&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc5205946b0&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+
+ vtkInformationVector &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058be90&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Debug: Off
+  Modified Time: 124
+  Reference Count: 2
+  Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+  Number of Information Objects: 1
+  Information Objects:
+    vtkInformation&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058e610&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;:
+      Debug: Off
+      Modified Time: 734
+      Reference Count: 2
+      Registered Events: &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;none&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+      CONSUMERS: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058ae10&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 1
+      PRODUCER: vtkCompositeDataPipeline&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc52058d690&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; port 0
+      UPDATE_EXTENT_INITIALIZED: 0
+      UPDATE_PIECE_NUMBER: 0
+      UPDATE_NUMBER_OF_PIECES: 1
+      UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+      DATA_OBJECT: vtkPolyData&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;0x7fc520594e50&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;If you look at the output carefully, you will notice that &lt;code&gt;inInfo&lt;/code&gt; contains
+2 &lt;code&gt;vtkInformationVector&lt;/code&gt; objects, each corresponding to 2 input ports.
+The first port is repeatable and contains 2 connections. Therefore, the
+first &lt;code&gt;vtkInformationVector&lt;/code&gt; contains 2 &lt;code&gt;vtkInformation&lt;/code&gt; objects. The
+second port accepts only 1 connection and hence the second &lt;code&gt;vtkInformationVector&lt;/code&gt;
+contains only &lt;code&gt;vtkInformation&lt;/code&gt; object.&lt;/p&gt;
+
+&lt;p&gt;Hopefully, this gives you enough information to get started with writing
+basic algorithms. In my next blog, I will cover how the pipelines performs
+multiple passes during execution and how these passes are implement by
+algorithms.&lt;/p&gt;
+</content>
+ </entry>
  
  <entry>
    <title>Developing HDF5 readers using vtkPythonAlgorithm</title>

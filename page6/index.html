@@ -51,107 +51,119 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/08/21/send-dataobjects/">
-        Sending and receiving VTK data objects using MPI
+      <a href="/2014/08/27/vtk-plans/">
+        VTK - my perspective on direction and upcoming developments
       </a>
     </h1>
 
-    <span class="post-date">21 Aug 2014</span>
+    <span class="post-date">27 Aug 2014</span>
 
-    <p>Someone asked me on Twitter if it is possible to send VTK objects to slave nodes using mpi4py. The
-answer is sometimes. In the most general case, you need to use something like
-<a href="http://docs.enthought.com/mayavi/tvtk/">tvtk</a> to make use of mpi4py&#39;s ability to send/receive any
-pickled Python object. Even then, tvtk does not pickle references to other VTK objects so you can&#39;t
-send an arbitrary graph of objects using mpi4py.</p>
+    <p>We have been having great discussions on the VTK developers mailing list about <a href="http://vtk.markmail.org/thread/3c43valhsqm66jnl">encouraging new
+developers to join VTK</a> and about <a href="http://vtk.markmail.org/thread/fjn3akb5y2fnfjve">keeping
+existing contributors engaged</a>. Here is a great
+quote from one of David Gobbi&#39;s emails:</p>
 
-<p>In the less general case, one can use VTK communicators to send/receive data objects. Here is a
-simple example:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
-
-<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
-
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">c</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
-    <span class="n">c</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
-    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
-
-<p>See the documentation for <code>vtkMultiProcessController</code> and <code>vtkMPIController</code> to see which methods
-are available in C++. Note that not all of these methods are accessible in Python. It is also
-possible to broadcast a data object as follows.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
-
-<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
-
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">sphere</span> <span class="o">=</span> <span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
-
-<span class="n">c</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
-
-<p>Both of these methods depend on serializing a data object to a buffer using writers and reading
-back using readers. The legacy readers and writers are used for this. Here is how one can
-directly use this marshaling/unmarshaling capability with mpi4py:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
-<span class="n">comm</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
-<span class="kn">import</span> <span class="nn">numpy</span>
-
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">ca</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCharArray</span><span class="p">()</span>
-    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">MarshalDataObject</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="n">ca</span><span class="p">)</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">ca</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">sz</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
-    <span class="n">buff</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">sz</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">buff</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">])</span>
-    <span class="n">pd</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
-    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">UnMarshalDataObject</span><span class="p">(</span><span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="n">buff</span><span class="p">),</span> <span class="n">pd</span><span class="p">)</span>
-    <span class="k">print</span> <span class="n">pd</span></code></pre></div>
-
-<p>It would be fairly easy to extend this example to use non-blocking communication methods
-available in MPI.</p>
-
-<p>Finally, here is a list of data object types that are supported by the marshaling code:</p>
+<blockquote>
+<p>Community engagement requires:</p>
 
 <ul>
-<li>VTK<em>DIRECTED</em>GRAPH</li>
-<li>VTK<em>UNDIRECTED</em>GRAPH</li>
-<li>VTK<em>IMAGE</em>DATA</li>
-<li>VTK<em>POLY</em>DATA</li>
-<li>VTK<em>RECTILINEAR</em>GRID</li>
-<li>VTK<em>STRUCTURED</em>GRID</li>
-<li>VTK<em>STRUCTURED</em>POINTS</li>
-<li>VTK_TABLE</li>
-<li>VTK_TREE</li>
-<li>VTK<em>UNSTRUCTURED</em>GRID</li>
-<li>VTK<em>MULTIBLOCK</em>DATA_SET</li>
-<li>VTK<em>UNIFORM</em>GRID_AMR</li>
+<li><p>Responsive communication.  You don&#39;t need to always have the answer,
+you just need to not be silent.</p></li>
+<li><p>Dedication.  Share your dreams and show that you care about the
+future.  Help your employees to do the same.</p></li>
+<li><p>Transparency.  Lay out the roadmap for all to see.  Summarize
+important development meetings on the wiki.</p></li>
+</ul>
+</blockquote>
+
+<p>Here is my attempt to addressing the dedication and transparency parts. At Kitware, we have been
+doing some wonderful things with and to VTK and we plan doing much more. We have not been great at
+communicating these however. Here is a quick summary of things that I have been involved in doing and planning.</p>
+
+<h2>Overhaul of the rendering infrastructure:</h2>
+
+<p>We are renovating geometry and volume rendering in VTK. The goal is to move to a much more modern
+OpenGL implementation and to support mobile platforms through OpenGL ES. See <a href="http://www.kitware.com/source/home/post/144">Marcus&#39;
+blog</a> on the geometry side of the work. Volume
+rendering blog is in the works. This is part of a larger effort under the VTK Maintenance Grant
+from NIH. See <a href="http://vtk.markmail.org/thread/nyultqo5ayn7tqtm">here</a> for details.</p>
+
+<h2>Improved multi-threaded execution</h2>
+
+<p>We have introduced a new infrastructure to support the development of multi-threaded algorithms in
+VTK. The goal is to support structured and unstructured data. See <a href="http://www.vtk.org/Wiki/VTK/VTK_SMP">this
+document</a> for a summary of initial work. These are just the
+first steps. We plan on doing much more in the near future.</p>
+
+<h2>Improved data model</h2>
+
+<p>This is a broad category that covers many things such as no-copy data adaptors for <em>in situ</em>
+analysis ([<a href="http://www.kitware.com/blog/home/post/577">1</a>], [<a href="http://www.vtk.org/Wiki/VTK/InSituDataStructures">2</a>]) to better support for ghost arrays and blanking. Some of our
+goals include</p>
+
+<ul>
+<li><p>Support for correctness in distributed filters (better support for blanking and ghosts)</p></li>
+<li><p>Support for more dataset types</p></li>
+<li><p>Support for different memory layouts for same dataset types</p></li>
+<li><p>More efficient APIs</p></li>
+<li><p>Better support for thread safety</p></li>
 </ul>
 
-<p>I hope that this answers the question.</p>
+<p>This will be an area of strong focus in the coming years.</p>
 
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/721">Kitware blog</a>.
+<h2>Better pipeline support for distributed parallel execution</h2>
+
+<p>See <a href="http://www.vtk.org/Wiki/VTK/Parallel_Pipeline">this document</a> for some recent work on this.
+There are some aspects of the data parallel pipeline that do not work well with all filter and
+data types. For example, the imaging pipeline and its extent based streaming mechanism did
+not always work well when mixed with piece based parallelism. We made some progress in addressing
+these issues but there is more work. One particular pet peeve of mine is how the imaging filters
+do allocation of the output before <code>RequestData()</code> requiring all meta-data about scalars etc. be
+available during <code>RequestInformation()</code>. I&#39;d like to see meta-data be optional - if it is there, great, use it for optimization, if not, do the slow path if necessary. This would make dealing
+with mixed imaging and unstructured pipelines as well as multi-block datasets easier.</p>
+
+<h2>Better data model and pipeline support for multi-resolution streaming</h2>
+
+<p>The goal being supporting hiearchical datasets (octrees of volumes or particles for example) that
+can be streamed in an adaptive way through the pipeline. Most of the key infrastructure for this
+is already in place. We need some formalization around information keys, data layouts in composite
+datasets, reader interfaces etc.</p>
+
+<h2>Better pipeline support for ensemble datasets</h2>
+
+<p>Think of ensemble datasets as an arbitrary collection of related datasets. They may be generated by
+traversing an input parameter space in a simulation, by injecting various types on uncertainty to a
+simulation or be running the same simulation using different models. The common goals for the
+analysis and visualization of ensemble datasets are comparative visualization, linked parameter
+space - ensemble member visualization, statistical analysis of ensemble members and uncertainty
+visualization. Scientific data is rarely a single dataset these days and VTK needs to expand to
+provide first class support to ensembles. We made some progress towards improvements in the pipeline
+to support streaming of ensemble datasets (which I will write about in the future) but there is a
+lot more work to be done.</p>
+
+<h2>Improved numpy integration</h2>
+
+<p>VTK has had a decent relationship with Python and numpy for a long time. However, things could
+be much better. We recently migrated ParaView&#39;s numpy integration code to VTK and made some
+significant improvements to it. Although I call this work &quot;numpy integration&quot;, it is much more than
+simply expositing VTK arrays as numpy arrays. VTK brings a full-featured data model that goes
+beyond n-dimensional arrays to the picture. Plus the code in VTK fully supports distributed
+parallelism and can support other types of parallelism such as multi-threaded parallelism,
+vector parallelism and GPU acceleration as applied to its data model. How we can expose some of
+this functionality while maintaining numpy-style ease-of-use is something we are likely to focus
+on in the future.</p>
+
+<h2>Fixes to executives</h2>
+
+<p>Executives have grown organically and collected a lot of gunk. We need to clean them up to make
+them more accessible to developers. They need to be easily understood and expanded. We also have
+some issues in pipeline traversal that become problematic when dealing diamond-shaped pipelines.</p>
+
+<p>This is a partial list. There is a lot more improvements that will likely be made at the dataset
+and algorithm level. Also, I only focused on work that I am pretty familiar with. I hope that
+others will chime in and add their perspective to mine.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/728">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 

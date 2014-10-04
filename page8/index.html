@@ -51,116 +51,107 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/08/12/mpi4py/">
-        mpi4py and VTK
+      <a href="/2014/08/21/send-dataobjects/">
+        Sending and receiving VTK data objects using MPI
       </a>
     </h1>
 
-    <span class="post-date">12 Aug 2014</span>
+    <span class="post-date">21 Aug 2014</span>
 
-    <p>We recently added <a href="http://mpi4py.scipy.org/">mpi4py</a> as one of the third party
-libraries in VTK. Below is a quote from the mpi4py explaining what it is.</p>
+    <p>Someone asked me on Twitter if it is possible to send VTK objects to slave nodes using mpi4py. The
+answer is sometimes. In the most general case, you need to use something like
+<a href="http://docs.enthought.com/mayavi/tvtk/">tvtk</a> to make use of mpi4py&#39;s ability to send/receive any
+pickled Python object. Even then, tvtk does not pickle references to other VTK objects so you can&#39;t
+send an arbitrary graph of objects using mpi4py.</p>
 
-<blockquote>
-<p>MPI for Python (mpi4py) provides bindings of the Message Passing Interface
-(MPI) standard for the Python programming language, allowing any Python
-program to exploit multiple processors.</p>
-
-<p>This package is constructed on top of the MPI-1/MPI-2 specification and
-provides an object oriented interface which closely follows MPI-2 C++
-bindings. It supports point-to-point (sends, receives) and collective
-(broadcasts, scatters, gathers) communications of any picklable Python
-object as well as optimized communications of Python object exposing the
-single-segment buffer interface (NumPy arrays, builtin bytes/string/array
-objects).</p>
-</blockquote>
-
-<p>See the mpi4py page for details.</p>
-
-<p>We have been using mpi4py in ParaView for several years and with the recent
-introduction of the <code>numpy_interface</code> module to VTK, we decided to move the
-mpi4py dependency to VTK as well. This allowed us to support data parallelism
-with MPI in the <code>numpy_interface</code> module. I will discuss this in an upcoming
-blog in more detail.</p>
-
-<p>Using mpi4py is pretty straightforward. The following can be called from
-vtkpython, pvtkpython and python.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span></code></pre></div>
-
-<p>Note that if you are going to mix parallel VTK and mpi4py, we recommend using
-pvtkpython, which initializes several VTK data structures that make it easier
-for algorithms to access MPI communicators.</p>
-
-<p>VTK also provides a Python-accessible interface to MPI in the vtkMPIController
-and vtkMPICommunicator classes. However, these classes were not designed to be
-used from Python and as such provide only a small set of methods. Most
-often, you will use mpi4py when coding in Python.</p>
-
-<p>In some cases, specially when using MPI groups, it is necessary to pass the
-communicator used by VTK to mpi4py or vice versa. We developed a simple
-utility class to enable this. This class is called vtkMPI4PyCommunicator and
-is used as follows.</p>
+<p>In the less general case, one can use VTK communicators to send/receive data objects. Here is a
+simple example:</p>
 
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
 
-<span class="c"># GlobalController is defined automatically when running pvtkpython</span>
-<span class="c"># Otherwise, you need to manually create a vtkMPIController and set</span>
-<span class="c"># it yourself.</span>
-<span class="n">contr</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
-<span class="n">comm</span> <span class="o">=</span> <span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">controller</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
 
-<span class="n">acomm</span> <span class="o">=</span> <span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToVTK</span><span class="p">(</span><span class="n">comm</span><span class="p">)</span>
-<span class="n">acontr</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPIController</span><span class="p">()</span>
-<span class="n">acontr</span><span class="o">.</span><span class="n">SetCommunicator</span><span class="p">(</span><span class="n">acomm</span><span class="p">)</span></code></pre></div>
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
 
-<p>Since mpi4py works very nicely with numpy arrays and VTKArray is a subclass of
-<code>numpy.ndarray</code> (see previous posts
-[<a href="http://www.kitware.com/blog/home/post/709">1</a>],
-[<a href="http://www.kitware.com/blog/home/post/713">2</a>] and
-[<a href="http://www.kitware.com/blog/home/post/714">3</a>]), it is very straightforward
-to use them together as follows.</p>
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
+    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
+
+<p>See the documentation for <code>vtkMultiProcessController</code> and <code>vtkMPIController</code> to see which methods
+are available in C++. Note that not all of these methods are accessible in Python. It is also
+possible to broadcast a data object as follows.</p>
 
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
+
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+
+<span class="n">c</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
+
+<p>Both of these methods depend on serializing a data object to a buffer using writers and reading
+back using readers. The legacy readers and writers are used for this. Here is how one can
+directly use this marshaling/unmarshaling capability with mpi4py:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
 <span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
+<span class="n">comm</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
 <span class="kn">import</span> <span class="nn">numpy</span>
 
-<span class="n">gc</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
-
-<span class="n">rank</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
-
-<span class="n">fa</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkFloatArray</span><span class="p">()</span>
-<span class="n">fa</span><span class="o">.</span><span class="n">SetNumberOfTuples</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
-<span class="n">fa</span><span class="o">.</span><span class="n">FillComponent</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">rank</span><span class="p">)</span>
 <span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">fa</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">ca</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCharArray</span><span class="p">()</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">MarshalDataObject</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="n">ca</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">ca</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sz</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
+    <span class="n">buff</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">sz</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">buff</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">])</span>
+    <span class="n">pd</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">UnMarshalDataObject</span><span class="p">(</span><span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="n">buff</span><span class="p">),</span> <span class="n">pd</span><span class="p">)</span>
+    <span class="k">print</span> <span class="n">pd</span></code></pre></div>
 
-<span class="n">vtk_array</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">fa</span><span class="p">)</span>
-<span class="n">result</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">vtk_array</span><span class="p">)</span>
+<p>It would be fairly easy to extend this example to use non-blocking communication methods
+available in MPI.</p>
 
-<span class="n">comm</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
-<span class="n">comm</span><span class="o">.</span><span class="n">Allreduce</span><span class="p">([</span><span class="n">vtk_array</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="p">[</span><span class="n">result</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">MPI</span><span class="o">.</span><span class="n">MAX</span><span class="p">)</span>
+<p>Finally, here is a list of data object types that are supported by the marshaling code:</p>
 
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="k">print</span> <span class="n">result</span></code></pre></div>
+<ul>
+<li>VTK<em>DIRECTED</em>GRAPH</li>
+<li>VTK<em>UNDIRECTED</em>GRAPH</li>
+<li>VTK<em>IMAGE</em>DATA</li>
+<li>VTK<em>POLY</em>DATA</li>
+<li>VTK<em>RECTILINEAR</em>GRID</li>
+<li>VTK<em>STRUCTURED</em>GRID</li>
+<li>VTK<em>STRUCTURED</em>POINTS</li>
+<li>VTK_TABLE</li>
+<li>VTK_TREE</li>
+<li>VTK<em>UNSTRUCTURED</em>GRID</li>
+<li>VTK<em>MULTIBLOCK</em>DATA_SET</li>
+<li>VTK<em>UNIFORM</em>GRID_AMR</li>
+</ul>
 
-<p>When this is executed as</p>
+<p>I hope that this answers the question.</p>
 
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">mpiexec -n <span class="m">2</span> pvtkpython parallel_array.py</code></pre></div>
-
-<p>it prints</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="p">[</span>  <span class="mf">1.</span>   <span class="mf">1.</span>   <span class="mf">1.</span>  <span class="mf">10.</span>   <span class="mf">1.</span>   <span class="mf">1.</span>   <span class="mf">1.</span>   <span class="mf">1.</span>   <span class="mf">1.</span>   <span class="mf">1.</span><span class="p">]</span></code></pre></div>
-
-<p>In my next blog, I will talk about how to use the <code>algorithms</code> module
-in parallel. Until then, happy Message Passing.</p>
-
-<p><em>Many thanks to Ben Boeckel for moving mpi4py to VTK and implementing
-vtkMPI4PyCommunicator.</em></p>
-
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/716">Kitware blog</a>.
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/721">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 
