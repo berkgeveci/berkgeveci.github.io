@@ -1,4 +1,5 @@
 import vtk
+from vtk.util import keys
 
 info = vtk.vtkInformation()
 print info
@@ -9,7 +10,7 @@ key = vtk.vtkSelectionNode.SOURCE()
 info.Set(key, vtk.vtkObject())
 print info
 
-key = vtk.vtkInformationObjectBaseKey.MakeKey("a new key", "some class")
+key = keys.MakeKey(keys.ObjectBaseKey, "a new key", "some class")
 print "key:\n", key
 
 info = vtk.vtkInformation()
@@ -18,12 +19,12 @@ print "info:\n", info
 key.Set(info, vtk.vtkObject())
 print "info after set:\n", info
 
-key = vtk.vtkInformationIntegerKey.MakeKey("another key", "some class")
+key = keys.MakeKey(keys.IntegerKey, "another key", "some class")
 
 key.Set(info, 12)
 print info
 
-key = vtk.vtkInformationIntegerKey.MakeKey("another key", "some class")
+key = keys.MakeKey(keys.IntegerKey, "another key", "some class")
 
 iv = vtk.vtkInformationVector()
 

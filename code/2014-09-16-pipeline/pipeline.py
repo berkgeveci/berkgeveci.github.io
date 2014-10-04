@@ -1,5 +1,8 @@
 import vtk
 from vtk.util.vtkAlgorithm import VTKPythonAlgorithmBase
+from vtk.util import keys
+
+metaDataKey = keys.MakeKey(keys.DataObjectMetaDataKey, "a meta-data", "my module")
 
 class MySource(VTKPythonAlgorithmBase):
     def __init__(self):
@@ -9,17 +12,18 @@ class MySource(VTKPythonAlgorithmBase):
 
     def RequestInformation(self, request, inInfo, outInfo):
         print "MySource RequestInformation:"
+        outInfo.GetInformationObject(0).Set(metaDataKey, vtk.vtkPolyData())
         print outInfo.GetInformationObject(0)
         return 1
 
     def RequestUpdateExtent(self, request, inInfo, outInfo):
         print "MySource RequestUpdateExtent:"
-        print outInfo.GetInformationObject(0)
+#        print outInfo.GetInformationObject(0)
         return 1
 
     def RequestData(self, request, inInfo, outInfo):
         print "MySource RequestData:"
-        print outInfo.GetInformationObject(0)
+#        print outInfo.GetInformationObject(0)
         return 1
 
 class MyFilter(VTKPythonAlgorithmBase):
@@ -35,12 +39,12 @@ class MyFilter(VTKPythonAlgorithmBase):
 
     def RequestUpdateExtent(self, request, inInfo, outInfo):
         print "MyFilter RequestUpdateExtent:"
-        print outInfo.GetInformationObject(0)
+#        print outInfo.GetInformationObject(0)
         return 1
 
     def RequestData(self, request, inInfo, outInfo):
         print "MyFilter RequestData:"
-        print outInfo.GetInformationObject(0)
+#        print outInfo.GetInformationObject(0)
         return 1
 
 s = MySource()
