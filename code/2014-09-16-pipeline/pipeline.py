@@ -35,6 +35,15 @@ class MyFilter(VTKPythonAlgorithmBase):
     def RequestInformation(self, request, inInfo, outInfo):
         print "MyFilter RequestInformation:"
         print outInfo.GetInformationObject(0)
+        metaData = inInfo[0].GetInformationObject(0).Get(
+            metaDataKey)
+        newMetaData = metaData.NewInstance()
+        newMetaData.ShallowCopy(metaData)
+        someArray = vtk.vtkCharArray()
+        someArray.SetName("someArray")
+        newMetaData.GetFieldData().AddArray(someArray)
+        outInfo.GetInformationObject(0).Set(metaDataKey, newMetaData)
+        print outInfo.GetInformationObject(0)
         return 1
 
     def RequestUpdateExtent(self, request, inInfo, outInfo):
@@ -52,4 +61,4 @@ s = MySource()
 f = MyFilter()
 f.SetInputConnection(s.GetOutputPort())
 
-f.Update()
+f.UpdateInformation()
