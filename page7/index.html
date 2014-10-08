@@ -51,157 +51,119 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/08/25/vtk-python-5/">
-        Improved VTK - numpy integration (part 5)
+      <a href="/2014/08/27/vtk-plans/">
+        VTK - my perspective on direction and upcoming developments
       </a>
     </h1>
 
-    <span class="post-date">25 Aug 2014</span>
+    <span class="post-date">27 Aug 2014</span>
 
-    <p>Welcome to my last blog in the series where we  to discover VTK&#39;s
-<code>numpy_interface</code> module. If you are not familiar with this module, I
-recommend checking out my previous blogs on it ([<a href="/2014/07/28/vtk-python/">1</a>], 
-[<a href="/2014/07/31/vtk-python-2/">2</a>], [<a href="/2014/08/07/vtk-python-3/">3</a>]).
-In this blog, I will talk about how one can work with composite datasets and arrays using 
-this module.</p>
+    <p>We have been having great discussions on the VTK developers mailing list about <a href="http://vtk.markmail.org/thread/3c43valhsqm66jnl">encouraging new
+developers to join VTK</a> and about <a href="http://vtk.markmail.org/thread/fjn3akb5y2fnfjve">keeping
+existing contributors engaged</a>. Here is a great
+quote from one of David Gobbi&#39;s emails:</p>
 
-<p>Let&#39;s start with defining what a composite dataset is. From a class point of view, it is
-<code>vtkCompositeDataSet</code> or any of its subclasses. From a functionality point of view, it is a way of
-collecting together a set of <code>vtkDataObject</code>s (usually <code>vtkDataSet</code>s). The most generic example is
-<code>vtkMultiBlockDataSet</code> which allows the creation of an arbitrary tree of <code>vtkDataObject</code>s.
-Another example is <code>vtkOverlappingAMR</code> which represent a Berger-Colella style AMR meshes. Here is
-how we can create a multi-block dataset.</p>
+<blockquote>
+<p>Community engagement requires:</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span> <span class="nn">vtk</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">s</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkConeSource</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">c</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">mb</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span></code></pre></div>
+<ul>
+<li><p>Responsive communication.  You don&#39;t need to always have the answer,
+you just need to not be silent.</p></li>
+<li><p>Dedication.  Share your dreams and show that you care about the
+future.  Help your employees to do the same.</p></li>
+<li><p>Transparency.  Lay out the roadmap for all to see.  Summarize
+important development meetings on the wiki.</p></li>
+</ul>
+</blockquote>
 
-<p>Many of VTK&#39;s algorithms work with composite datasets without any change. For example:</p>
+<p>Here is my attempt to addressing the dedication and transparency parts. At Kitware, we have been
+doing some wonderful things with and to VTK and we plan doing much more. We have not been great at
+communicating these however. Here is a quick summary of things that I have been involved in doing and planning.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">e</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkElevationFilter</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">mb</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">mbe</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">mbe</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span></code></pre></div>
+<h2>Overhaul of the rendering infrastructure:</h2>
 
-<p>This will output <code>&#39;vtkMultiBlockDataSet&#39;</code>. Note that I used <code>GetOutputDataObject()</code> rather than
-<code>GetOutput()</code>. <code>GetOutput()</code> is simply a <code>GetOutputDataObject()</code> wrapped with a <code>SafeDownCast()</code>
-to the expected output type of the algorithm - which in this case is a <code>vtkDataSet</code>. So
-<code>GetOutput()</code> will return <code>0</code> even when <code>GetOutputDataObject()</code> returns an actual composite
-dataset.</p>
+<p>We are renovating geometry and volume rendering in VTK. The goal is to move to a much more modern
+OpenGL implementation and to support mobile platforms through OpenGL ES. See <a href="http://www.kitware.com/source/home/post/144">Marcus&#39;
+blog</a> on the geometry side of the work. Volume
+rendering blog is in the works. This is part of a larger effort under the VTK Maintenance Grant
+from NIH. See <a href="http://vtk.markmail.org/thread/nyultqo5ayn7tqtm">here</a> for details.</p>
 
-<p>Now that we have a composite dataset with a scalar, we can use <code>numpy_interface</code>.</p>
+<h2>Improved multi-threaded execution</h2>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">mbw</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">mbe</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
-<span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">,</span> <span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">elev</span> <span class="o">=</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">elev</span>
-<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKCompositeDataArray</span> <span class="n">at</span> <span class="mh">0x1189ee410</span><span class="o">&gt;</span></code></pre></div>
+<p>We have introduced a new infrastructure to support the development of multi-threaded algorithms in
+VTK. The goal is to support structured and unstructured data. See <a href="http://www.vtk.org/Wiki/VTK/VTK_SMP">this
+document</a> for a summary of initial work. These are just the
+first steps. We plan on doing much more in the near future.</p>
 
-<p>Note that the array type is different than we have seen previously (<code>VTKArray</code>). However, it still
-works the same way.</p>
+<h2>Improved data model</h2>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
-<span class="mf">0.5</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">elev</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<span class="mf">1.5</span></code></pre></div>
+<p>This is a broad category that covers many things such as no-copy data adaptors for <em>in situ</em>
+analysis ([<a href="http://www.kitware.com/blog/home/post/577">1</a>], [<a href="http://www.vtk.org/Wiki/VTK/InSituDataStructures">2</a>]) to better support for ghost arrays and blanking. Some of our
+goals include</p>
 
-<p>You can individually access the arrays of each block as follows.</p>
+<ul>
+<li><p>Support for correctness in distributed filters (better support for blanking and ghosts)</p></li>
+<li><p>Support for more dataset types</p></li>
+<li><p>Support for different memory layouts for same dataset types</p></li>
+<li><p>More efficient APIs</p></li>
+<li><p>Better support for thread safety</p></li>
+</ul>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">elev</span><span class="o">.</span><span class="n">Arrays</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.5</span>       <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>
-        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>
-        <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>
-        <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>
-        <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>
-        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>
-        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>
-        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>
-        <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>
-        <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span></code></pre></div>
+<p>This will be an area of strong focus in the coming years.</p>
 
-<p>Note that indexing is slightly different.</p>
+<h2>Better pipeline support for distributed parallel execution</h2>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">elev</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
-<span class="p">[</span><span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.5</span><span class="p">,</span>  <span class="mf">0.</span><span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">),</span>
- <span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.</span><span class="p">,</span>  <span class="mf">0.</span><span class="p">,</span>  <span class="mf">0.43301269</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)]</span></code></pre></div>
+<p>See <a href="http://www.vtk.org/Wiki/VTK/Parallel_Pipeline">this document</a> for some recent work on this.
+There are some aspects of the data parallel pipeline that do not work well with all filter and
+data types. For example, the imaging pipeline and its extent based streaming mechanism did
+not always work well when mixed with piece based parallelism. We made some progress in addressing
+these issues but there is more work. One particular pet peeve of mine is how the imaging filters
+do allocation of the output before <code>RequestData()</code> requiring all meta-data about scalars etc. be
+available during <code>RequestInformation()</code>. I&#39;d like to see meta-data be optional - if it is there, great, use it for optimization, if not, do the slow path if necessary. This would make dealing
+with mixed imaging and unstructured pipelines as well as multi-block datasets easier.</p>
 
-<p>The return value is a composite array consisting of 2 <code>VTKArray</code>s. The <code>[]</code> operator simply returned
-the first 4 values of each array. In general, all indexing operations apply to each <code>VTKArray</code> in
-the composite array collection. Similarly for algorithms such as <code>where</code>.</p>
+<h2>Better data model and pipeline support for multi-resolution streaming</h2>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">elev</span> <span class="o">&lt;</span> <span class="mf">0.5</span><span class="p">)</span>
-<span class="p">[(</span><span class="n">array</span><span class="p">([</span> <span class="mi">1</span><span class="p">,</span>  <span class="mi">2</span><span class="p">,</span>  <span class="mi">3</span><span class="p">,</span>  <span class="mi">4</span><span class="p">,</span>  <span class="mi">5</span><span class="p">,</span>  <span class="mi">6</span><span class="p">,</span>  <span class="mi">7</span><span class="p">,</span>  <span class="mi">8</span><span class="p">,</span>  <span class="mi">9</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">,</span> <span class="mi">14</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">17</span><span class="p">,</span>
-       <span class="mi">18</span><span class="p">,</span> <span class="mi">19</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">22</span><span class="p">,</span> <span class="mi">23</span><span class="p">,</span> <span class="mi">24</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">27</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">29</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">31</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">33</span><span class="p">,</span> <span class="mi">34</span><span class="p">,</span>
-       <span class="mi">35</span><span class="p">,</span> <span class="mi">36</span><span class="p">,</span> <span class="mi">37</span><span class="p">,</span> <span class="mi">38</span><span class="p">,</span> <span class="mi">39</span><span class="p">,</span> <span class="mi">40</span><span class="p">,</span> <span class="mi">41</span><span class="p">,</span> <span class="mi">42</span><span class="p">,</span> <span class="mi">43</span><span class="p">,</span> <span class="mi">44</span><span class="p">,</span> <span class="mi">45</span><span class="p">,</span> <span class="mi">46</span><span class="p">,</span> <span class="mi">47</span><span class="p">,</span> <span class="mi">48</span><span class="p">,</span> <span class="mi">49</span><span class="p">]),),</span>
-       <span class="p">(</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">]),)]</span></code></pre></div>
+<p>The goal being supporting hiearchical datasets (octrees of volumes or particles for example) that
+can be streamed in an adaptive way through the pipeline. Most of the key infrastructure for this
+is already in place. We need some formalization around information keys, data layouts in composite
+datasets, reader interfaces etc.</p>
 
-<p>Now, let&#39;s look at the other array called <code>Normals</code>.</p>
+<h2>Better pipeline support for ensemble datasets</h2>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">normals</span> <span class="o">=</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">]</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">normals</span><span class="o">.</span><span class="n">Arrays</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">VTKArray</span><span class="p">([[</span>  <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">1.00000000e+00</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>  <span class="o">-</span><span class="mf">1.00000000e+00</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">4.33883727e-01</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">9.00968850e-01</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">7.81831503e-01</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">6.23489797e-01</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">9.74927902e-01</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">2.22520933e-01</span><span class="p">],</span>
-       <span class="o">...</span>
-       <span class="p">[</span>  <span class="mf">6.89378142e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.89378142e-01</span><span class="p">,</span>   <span class="mf">2.22520933e-01</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">6.89378142e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.89378142e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">2.22520933e-01</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">5.52838326e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">5.52838326e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.23489797e-01</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">3.06802124e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">3.06802124e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">9.00968850e-01</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">normals</span><span class="o">.</span><span class="n">Arrays</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKNoneArray</span> <span class="n">at</span> <span class="mh">0x1189e7790</span><span class="o">&gt;</span></code></pre></div>
+<p>Think of ensemble datasets as an arbitrary collection of related datasets. They may be generated by
+traversing an input parameter space in a simulation, by injecting various types on uncertainty to a
+simulation or be running the same simulation using different models. The common goals for the
+analysis and visualization of ensemble datasets are comparative visualization, linked parameter
+space - ensemble member visualization, statistical analysis of ensemble members and uncertainty
+visualization. Scientific data is rarely a single dataset these days and VTK needs to expand to
+provide first class support to ensembles. We made some progress towards improvements in the pipeline
+to support streaming of ensemble datasets (which I will write about in the future) but there is a
+lot more work to be done.</p>
 
-<p>Notice how the second arrays is a <code>VTKNoneArray</code>. This is because <code>vtkConeSource</code> does not produce
-normals. Where an array does not exist, we use a <code>VTKNoneArray</code> as placeholder. This allows us to
-maintain a one-to-one mapping between datasets of a composite dataset and the arrays in the
-<code>VTKCompositeDataArray</code>. It also allows us to keep algorithms working in parallel without a lot
-of specialized code (see my <a href="http://www.kitware.com/blog/home/post/720">previous blog</a>).</p>
+<h2>Improved numpy integration</h2>
 
-<p>Where many of the algorithms apply independently to each array in a collection, some algorithms are
-global. For example, <code>min</code> and <code>max</code> as we demonstrated above. It is sometimes useful to get per
-block answers. For this, you can use <code>_per_block</code> algorithms.</p>
+<p>VTK has had a decent relationship with Python and numpy for a long time. However, things could
+be much better. We recently migrated ParaView&#39;s numpy integration code to VTK and made some
+significant improvements to it. Although I call this work &quot;numpy integration&quot;, it is much more than
+simply expositing VTK arrays as numpy arrays. VTK brings a full-featured data model that goes
+beyond n-dimensional arrays to the picture. Plus the code in VTK fully supports distributed
+parallelism and can support other types of parallelism such as multi-threaded parallelism,
+vector parallelism and GPU acceleration as applied to its data model. How we can expose some of
+this functionality while maintaining numpy-style ease-of-use is something we are likely to focus
+on in the future.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max_per_block</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
-<span class="p">[</span><span class="n">VTKArray</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">),</span> <span class="n">VTKArray</span><span class="p">(</span><span class="mf">0.4330126941204071</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)]</span></code></pre></div>
+<h2>Fixes to executives</h2>
 
-<p>These work very nicely together with other operations. For example, here is how we can normalize
-the elevation values in each block.</p>
+<p>Executives have grown organically and collected a lot of gunk. We need to clean them up to make
+them more accessible to developers. They need to be easily understood and expanded. We also have
+some issues in pipeline traversal that become problematic when dealing diamond-shaped pipelines.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">_min</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">min_per_block</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">_max</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">max_per_block</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">_norm</span> <span class="o">=</span> <span class="p">(</span><span class="n">elev</span> <span class="o">-</span> <span class="n">_min</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">_max</span> <span class="o">-</span> <span class="n">_min</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">_norm</span><span class="p">)</span>
-<span class="mf">0.0</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">_norm</span><span class="p">)</span>
-<span class="mf">1.0</span></code></pre></div>
+<p>This is a partial list. There is a lot more improvements that will likely be made at the dataset
+and algorithm level. Also, I only focused on work that I am pretty familiar with. I hope that
+others will chime in and add their perspective to mine.</p>
 
-<p>Once you grasp these features, you should be able to use composite array very similarly to single
-arrays as described in previous blogs.</p>
-
-<p>A final note on composite datasets. The composite data wrapper provided by
-<code>numpy_interface.dataset_adapter</code> offers a few convenience functions to traverse composite datasets.
-Here is a simple example:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="n">mbw</span><span class="p">:</span>
-<span class="o">&gt;&gt;&gt;</span>    <span class="k">print</span> <span class="nb">type</span><span class="p">(</span><span class="n">ds</span><span class="p">)</span>
-<span class="o">&lt;</span><span class="k">class</span> <span class="err">&#39;</span><span class="nc">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">PolyData</span><span class="s">&#39;&gt;</span>
-<span class="o">&lt;</span><span class="k">class</span> <span class="err">&#39;</span><span class="nc">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">PolyData</span><span class="s">&#39;&gt;</span></code></pre></div>
-
-<p>This wraps up the blog series on <code>numpy_interface</code>. I hope to follow these up with some concrete
-examples of the module in action and some other useful information on using VTK from Python. Until
-then, cheers.</p>
-
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/723">Kitware blog</a>.
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/728">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 
