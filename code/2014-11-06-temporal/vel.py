@@ -52,8 +52,8 @@ class VelocitySource(VTKPythonAlgorithmBase):
 
 s = VelocitySource()
 s.UpdateInformation()
-s.SetUpdateExtent((0, 0, 1, 1, 0, 0))
+#s.SetUpdateExtent((0, 0, 1, 1, 0, 0))
 s.GetOutputInformation(0).Set(vtk.vtkStreamingDemandDrivenPipeline.UPDATE_TIME_STEP(), t[2])
 s.Update()
 i = s.GetOutputDataObject(0)
-print i.GetPointData().GetVectors().GetTuple3(0)
+print t[2], i.GetPointData().GetVectors().GetTuple3(0)
