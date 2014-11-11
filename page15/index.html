@@ -51,19 +51,19 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/07/28/vtk-python/">
-        Improved VTK - numpy integration
+      <a href="/2014/07/31/vtk-python-2/">
+        Improved VTK - numpy integration (part 2)
       </a>
     </h1>
 
-    <span class="post-date">28 Jul 2014</span>
+    <span class="post-date">31 Jul 2014</span>
 
-    <p>Recently, we have introduced a new Python module called <code>numpy_interface</code> to VTK. The main objective of this module is to make it easier to interface VTK and numpy. This article is the first in a series that introduces this module. Let&#39;s start with a teaser.</p>
+    <p>This is my second blog about the recently introduced <code>numpy_interface</code> module. In the <a href="/2014/07/28/vtk-python/">first one</a>, I gave a brief overview of the module and shared a few teasers. In this one, I will go over the <code>dataset_adapter</code> module which is part of <code>numpy_interface</code>. This module was designed to simplify accessing VTK datasets and arrays from Python and to provide a numpy-style interface.</p>
+
+<p>The first step to use the <code>dataset_adapter</code> module is to convert an existing VTK dataset object to a <code>dataset_adapter.VTKObjectWrapper</code>. Let&#39;s see how this is done by examining the teaser from the last blog:</p>
 
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-
 <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span> 
 
 <span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
 
@@ -73,77 +73,80 @@
 
 <span class="n">sphere</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
 
-<span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
-<span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span></code></pre></div>
+<span class="k">print</span> <span class="n">sphere</span>
+<span class="k">print</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="n">dsa</span><span class="o">.</span><span class="n">VTKObjectWrapper</span><span class="p">)</span></code></pre></div>
 
-<p>This example prints out the following (assuming that you have a relatively new checkout of VTK master from git).</p>
-<div class="highlight"><pre><code class="language-text" data-lang="text">[&#39;Normals&#39;, &#39;Elevation&#39;]
-[ 0.5         0.          0.45048442  0.3117449   0.11126047  0.          0.
-  0.          0.45048442  0.3117449   0.11126047  0.          0.          0.
-  0.45048442  0.3117449   0.11126047  0.          0.          0.
-  0.45048442  0.3117449   0.11126047  0.          0.          0.
-  0.45048442  0.3117449   0.11126047  0.          0.          0.
-  0.45048442  0.3117449   0.11126047  0.          0.          0.
-  0.45048442  0.3117449   0.11126047  0.          0.          0.
-  0.45048442  0.3117449   0.11126047  0.          0.          0.        ]
-</code></pre></div>
-<p>The last 3 lines are what is new. Note how we used a different API to access the PointData and the Elevation array on the last 2 lines. Also note that when we printed the Elevation array, the output didn&#39;t look like one from a vtkDataArray. In fact:</p>
+<p>will print:</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">elevation</span> <span class="o">=</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
-<span class="k">print</span> <span class="nb">type</span><span class="p">(</span><span class="n">elevation</span><span class="p">)</span>
-<span class="kn">import</span> <span class="nn">numpy</span>
-<span class="k">print</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">elevation</span><span class="p">,</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span></code></pre></div>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">PolyData</span> <span class="nb">object</span> <span class="n">at</span> <span class="mh">0x1101fbb50</span><span class="o">&gt;</span>
+<span class="bp">True</span></code></pre></div>
 
-<p>prints the following.</p>
-<div class="highlight"><pre><code class="language-text" data-lang="text">&lt;class &#39;vtk.numpy_interface.dataset_adapter.VTKArray&#39;&gt;
-True
-</code></pre></div>
-<p>So a VTK array is a numpy array? What kind of trickery is this you say? What kind of magic makes the following possible?</p>
+<p>What we did here is to create an instance of the <code>dataset_adapter.PolyData</code> class, which refers to the output of the <code>vtkElevationFilter</code> filter. We can access the underlying VTK object using the <code>VTKObject</code> member:</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">elevation</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&#39;e plus one&#39;</span><span class="p">)</span>
-<span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">elevation</span><span class="p">)</span>
-<span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;e plus one&#39;</span><span class="p">])</span>
-<span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">VTKObject</span></code></pre></div>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;</span> <span class="k">print</span> <span class="nb">type</span><span class="p">(</span><span class="n">sphere</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+<span class="o">&lt;</span><span class="nb">type</span> <span class="s">&#39;vtkobject&#39;</span><span class="o">&gt;</span></code></pre></div>
 
-<p>Output:</p>
-<div class="highlight"><pre><code class="language-text" data-lang="text">0.5
-1.5
-vtkPolyData (0x7fa20d011c60)
-  ...
-  Point Data:
-    ...
-    Number Of Arrays: 3
-    Array 0 name = Normals
-    Array 1 name = Elevation
-    Array 2 name = e plus one
-</code></pre></div>
-<p>It is all in the <code>numpy_interface</code> module. It ties VTK datasets and data arrays to numpy arrays and introduces a number of algorithms that can work on these objects. There is quite a bit to this module and I will introduce it piece by piece in upcoming blogs.</p>
+<p>Note that the <code>WrapDataObject()</code> function will return an appropriate wrapper class for all <code>vtkDataSet</code> subclasses, <code>vtkTable</code> and all <code>vtkCompositeData</code> subclasses. Other <code>vtkDataObject</code> subclasses are not currently supported.</p>
 
-<p>Let&#39;s wrap up this blog with one final teaser:</p>
+<p><code>VTKObjectWrapper</code> forwards VTK methods to its <code>VTKObject</code> so the VTK API can be accessed directy as follows:</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span> 
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;</span> <span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">GetNumberOfCells</span><span class="p">()</span>
+<span class="il">96L</span></code></pre></div>
 
-<span class="n">t</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSetTriangleFilter</span><span class="p">()</span>
-<span class="n">t</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">t</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span> 
+<p>However, <code>VTKObjectWrapper</code>s cannot be directly passed to VTK methods as an argument.</p>
 
-<span class="n">ugrid</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-<span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">])</span></code></pre></div>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;</span> <span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkShrinkPolyData</span><span class="p">()</span>
+<span class="o">&gt;&gt;</span> <span class="n">s</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">sphere</span><span class="p">)</span>
+<span class="ne">TypeError</span><span class="p">:</span> <span class="n">SetInputData</span> <span class="n">argument</span> <span class="mi">1</span><span class="p">:</span> <span class="n">method</span> <span class="n">requires</span> <span class="n">a</span> <span class="n">VTK</span> <span class="nb">object</span>
+<span class="o">&gt;&gt;</span> <span class="n">s</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">sphere</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span></code></pre></div>
 
-<p>Output:</p>
-<div class="highlight"><pre><code class="language-text" data-lang="text">[[ 25.46767712   8.78654003   7.28477383]
- [  6.02292252   8.99845123   7.49668884]
- [  5.23528767   9.80230141   8.3005352 ]
- ...,
- [ -6.43249083  -4.27642155  -8.30053616]
- [ -5.19838905  -3.47257614  -7.49668884]
- [ 13.42047501  -3.26066017  -7.28477287]]
-</code></pre></div>
-<p>Please note that this example is not very easily replicated by using pure numpy. The <code>gradient</code> function returns the gradient of an unstructured grid - a concept that does not exist in numpy. However, the ease-of-use of numpy is there.</p>
+<h2>Dataset Attributes</h2>
 
-<p>Stay tuned for more.</p>
+<p>So far, pretty boring, right? We have a wrapper for VTK data objects that partially behaves like a VTK data object. This gets a little bit more interesting when we start looking how one can access the fields (arrays) contained within this dataset.</p>
 
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/709">Kitware blog</a>.
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span>
+<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">DataSetAttributes</span> <span class="n">at</span> <span class="mh">0x110f5b750</span><span class="o">&gt;</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+<span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">,</span> <span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">sphere</span><span class="o">.</span><span class="n">CellData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+<span class="p">[]</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.5</span>       <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>
+        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>
+        <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>
+        <span class="o">...</span><span class="p">,</span>
+        <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>
+        <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">elevation</span> <span class="o">=</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">elevation</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span>
+<span class="n">VTKArray</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.</span><span class="p">,</span> <span class="mf">0.45048442</span><span class="p">,</span> <span class="mf">0.3117449</span><span class="p">,</span> <span class="mf">0.11126047</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span></code></pre></div>
+
+<p>Note that this works with composite datasets as well:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;</span> <span class="n">mb</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
+<span class="o">&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetNumberOfBlocks</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="o">&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">sphere</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+<span class="o">&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">sphere</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+<span class="o">&gt;&gt;</span> <span class="n">mbw</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">mb</span><span class="p">)</span>
+<span class="o">&gt;&gt;</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span>
+<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">CompositeDataSetAttributes</span> <span class="n">instance</span> <span class="n">at</span> <span class="mh">0x11109f758</span><span class="o">&gt;</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+<span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">,</span> <span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+
+<span class="o">&gt;&gt;</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKCompositeDataArray</span> <span class="n">at</span> <span class="mh">0x1110a32d0</span><span class="o">&gt;</span></code></pre></div>
+
+<p>It is possible to access PointData, CellData, FieldData, Points (subclasses of vtkPointSet only), Polygons (vtkPolyData only) this way. We will continue to add accessors to more types of arrays through this API.</p>
+
+<p>This is it for now. In my next blog in this series, I will talk about the array API and various algorithms the <code>numpy_interface</code> module provides.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/713">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 
@@ -153,7 +156,7 @@ Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a hre
 
 <div class="pagination">
   
-    <span class="pagination-item older">Older</span>
+    <a class="pagination-item older" href="/page16">Older</a>
   
   
     

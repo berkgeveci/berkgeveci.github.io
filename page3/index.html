@@ -51,59 +51,295 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/10/04/issue-hackathon/">
-        VTK issue hackathon
+      <a href="/2014/10/05/pipeline-2/">
+        A VTK pipeline primer (part 2)
       </a>
     </h1>
 
-    <span class="post-date">04 Oct 2014</span>
+    <span class="post-date">05 Oct 2014</span>
 
-    <p>On October 2nd 2014, we held a hackathon to reduce the number of issues in the VTK bug
-tracker in anticipation of VTK&#39;s migration to a new bug tracker (as part of migrating to
-Gitlab probably). We also hope to come to a place where we triage bugs early and keep
-the issue tracker relatively clean.</p>
+    <p>In a <a href="/2014/09/18/pipeline/">previous blog</a>, I covered some of the
+preliminaries for understanding how VTK&#39;s pipeline works. In this article, we
+will see the pipeline in action and start dissecting the execution path to understand
+the inner-workings of algorithms.</p>
 
-<p><img src="/assets/hackathon.jpg" alt="VTK issue hackathon"></p>
+<p>Let&#39;s start with a very simple pipeline.</p>
 
-<p>Here is the attendance list as far as I can tell:</p>
+<p><img src="/assets/empty-pipeline.png" alt="a pipeline"></p>
+
+<p>We&#39;ll use the following code for the source and the algorithm.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+<span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
+
+<span class="k">class</span> <span class="nc">MySource</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MySource RequestInformation:&quot;</span>
+<span class="c">#        print outInfo.GetInformationObject(0)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MySource RequestUpdateExtent:&quot;</span>
+<span class="c">#        print outInfo.GetInformationObject(0)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MySource RequestData:&quot;</span>
+<span class="c">#        print outInfo.GetInformationObject(0)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+<span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MyFilter RequestInformation:&quot;</span>
+<span class="c">#        print outInfo.GetInformationObject(0)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MyFilter RequestUpdateExtent:&quot;</span>
+<span class="c">#        print outInfo.GetInformationObject(0)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MyFilter RequestData:&quot;</span>
+<span class="c">#        print outInfo.GetInformationObject(0)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Then we instantiate and execute this pipeline with the following code.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s</span> <span class="o">=</span> <span class="n">MySource</span><span class="p">()</span>
+
+<span class="n">f</span> <span class="o">=</span> <span class="n">MyFilter</span><span class="p">()</span>
+<span class="n">f</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+
+<span class="n">f</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
+
+<p>This will print the following.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">MySource</span> <span class="n">RequestInformation</span><span class="p">:</span>
+<span class="n">MyFilter</span> <span class="n">RequestInformation</span><span class="p">:</span>
+<span class="n">MyFilter</span> <span class="n">RequestUpdateExtent</span><span class="p">:</span>
+<span class="n">MySource</span> <span class="n">RequestUpdateExtent</span><span class="p">:</span>
+<span class="n">MySource</span> <span class="n">RequestData</span><span class="p">:</span>
+<span class="n">MyFilter</span> <span class="n">RequestData</span><span class="p">:</span></code></pre></div>
+
+<p>The most interesting thing here is the order of execution of the various
+methods representing pipeline passes. Here are the order of the passes:</p>
 
 <ul>
-<li>Ken Martin</li>
-<li>Bill Lorensen</li>
-<li>Will Schroeder</li>
-<li>Bill Hoffman</li>
-<li>Berk Geveci</li>
-<li>Shawn Waldon</li>
-<li>Chuck Atkins</li>
-<li>Marcus Hanwell</li>
-<li>Utkarsh Ayachit</li>
-<li>Andy Bauer</li>
-<li>Ben Boeckel</li>
-<li>Dave DeMarle</li>
-<li>Cory Quammen</li>
-<li>David Gobbi</li>
-<li>David Cole</li>
-<li>Sean McBride</li>
+<li>RequestInformation</li>
+<li>RequestUpdateExtent</li>
+<li>RequestData</li>
 </ul>
 
-<p>It was awesome working alongside these brilliant folks to improve VTK. Of
-course, we had to occasionally poke fun at the original developers (all 3 were
-there!) and blame them for some of the issues; all in good fun.</p>
+<p>Furthermore, notice during <code>RequestInformation</code> and <code>RequestData</code>,
+the method execution happens starting at the upstream algorithm (MySource)
+and continues downstream. On the other hand, during <code>RequestUpdateExtent</code>,
+execution starts downstream and continues upstream. Why this is so will
+become more clear as we discuss each pass.</p>
 
-<p>Before the hackathon, we had 189 open bugs. After the hackathon, we have 118 bugs.
-But that&#39;s not all, there is still a lot of code in Gerrit review. So if we include
-those, we are down to 91 bugs! So we closed a whopping 98 bugs in 1 day. To be fair,
-we closed many bugs because they were already fixed or contained feature requests that
-we didn&#39;t want to implement but we also fixed a large number of real issues. To see the 
-list of bugs that we closed, check out <a href="http://tinyurl.com/lrznr6w">this link</a> and look
-at the bugs that were closed around 10/2 2014. This list will grow as the changes
-currently in Gerrit review makes into master. The icing on the cake is that we have
-very little dashboard issues that resulted from the hackathon. Those should be resolved
-very soon.</p>
+<h2>RequestInformation</h2>
 
-<p>After the hackathon, some of us went to <a href="http://saltyspub.com/">Salty&#39;s</a> for some
-grub and beers. Overall very successful and fun hackathon. I am already looking forward
-to the next one.</p>
+<p>This is the meta-data pass. This is the pass where the sources (usually
+readers) tell downstream algorithms about <em>what is available</em> for them
+to request. Some examples about meta-data include whole extent (see
+<a href="/2014/09/13/h5py-reader/">this blog</a> for example), timesteps
+available, ensemble members available, data blocks available etc.
+This meta-data usually originates in the readers (not necessarily required
+to though) and is either copied downstream or modified. For example, a
+subsetting filter can reduce the whole extent during its <code>RequestInformation</code>
+telling downstream that it can access a smaller subset that what the reader
+can provide. Or a filter that integrates a value over time may remove the
+timesteps meta-data since its output represent the whole time range. We&#39;ll
+see plenty of examples of this in upcoming blogs.</p>
+
+<p>To demonstrate how this works, let&#39;s modify our example a bit. Let&#39;s create
+a meta-data key with:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.util</span> <span class="kn">import</span> <span class="n">keys</span>
+
+<span class="n">metaDataKey</span> <span class="o">=</span> <span class="n">keys</span><span class="o">.</span><span class="n">MakeKey</span><span class="p">(</span><span class="n">keys</span><span class="o">.</span><span class="n">DataObjectMetaDataKey</span><span class="p">,</span> \
+  <span class="s">&quot;a meta-data&quot;</span><span class="p">,</span> <span class="s">&quot;my module&quot;</span><span class="p">)</span></code></pre></div>
+
+<p>and change our source to create a meta-data instance with this key as follows</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">MySource</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MySource RequestInformation:&quot;</span>
+        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">metaDataKey</span><span class="p">,</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">())</span>
+        <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Let&#39;s also change our filter to print its output information in <code>RequestInformation</code>
+as follows</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MyFilter RequestInformation:&quot;</span>
+        <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Now if we execute the <code>RequestInformation</code> pass with</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">f</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span></code></pre></div>
+
+<p>we get the following output</p>
+
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">MySource RequestInformation:
+vtkInformation <span class="o">(</span>0x7fe5aadb56b0<span class="o">)</span>
+  ...
+  a meta-data: vtkPolyData<span class="o">(</span>0x7fe5aae5a410<span class="o">)</span>
+
+
+MyFilter RequestInformation:
+vtkInformation <span class="o">(</span>0x7fe5aad4ade0<span class="o">)</span>
+  ...
+  a meta-data: vtkPolyData<span class="o">(</span>0x7fe5aae5a410<span class="o">)</span></code></pre></div>
+
+<p>Note that the output information of <code>MyFilter</code> contains the meta-data generated
+by <code>MySource</code>. Certain keys are automatically copied by the pipeline from upstream
+to downstream during the <code>RequestInformation</code> pass. For example, any key that
+is an instance of <code>vtkInformationDataObjectMetaDataKey</code> is copied automatically.
+Now say that <code>MyFilter</code> behaves in such a way that the meta-data coming from
+upstream needs to change for downstream. For example, if it computes a subset
+of its input, the extent meta-data would have to be changed. Here is how something
+like this can be accomplished.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">29</span> <span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="o">...</span>
+<span class="mi">35</span>     <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">36</span>         <span class="k">print</span> <span class="s">&quot;MyFilter RequestInformation:&quot;</span>
+<span class="mi">37</span>         <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="mi">38</span>         <span class="n">metaData</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
+<span class="mi">39</span>             <span class="n">metaDataKey</span><span class="p">)</span>
+<span class="mi">40</span>         <span class="n">newMetaData</span> <span class="o">=</span> <span class="n">metaData</span><span class="o">.</span><span class="n">NewInstance</span><span class="p">()</span>
+<span class="mi">41</span>         <span class="n">newMetaData</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">metaData</span><span class="p">)</span>
+<span class="mi">42</span>         <span class="n">someArray</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCharArray</span><span class="p">()</span>
+<span class="mi">43</span>         <span class="n">someArray</span><span class="o">.</span><span class="n">SetName</span><span class="p">(</span><span class="s">&quot;someArray&quot;</span><span class="p">)</span>
+<span class="mi">44</span>         <span class="n">newMetaData</span><span class="o">.</span><span class="n">GetFieldData</span><span class="p">()</span><span class="o">.</span><span class="n">AddArray</span><span class="p">(</span><span class="n">someArray</span><span class="p">)</span>
+<span class="mi">45</span>         <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">metaDataKey</span><span class="p">,</span> <span class="n">newMetaData</span><span class="p">)</span>
+<span class="mi">46</span>         <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="mi">47</span>         <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Here, on line 38, we extract the meta-data from the input information, we
+make a copy of it on line 40-41, we add a new array to the copy on lines
+42-44 and on line 45, we overwrite the output meta-data with the copy. If
+we run this example, the output will look like the following.</p>
+
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">vtkInformation <span class="o">(</span>0x7f9eab59bd30<span class="o">)</span>
+  ...
+  a meta-data: vtkPolyData<span class="o">(</span>0x7f9eab59f840<span class="o">)</span>
+
+
+MyFilter RequestInformation:
+vtkInformation <span class="o">(</span>0x7f9eab59c0b0<span class="o">)</span>
+  ...
+  a meta-data: vtkPolyData<span class="o">(</span>0x7f9eab59f840<span class="o">)</span>
+
+
+vtkInformation <span class="o">(</span>0x7f9eab59c0b0<span class="o">)</span>
+  ...
+  a meta-data: vtkPolyData<span class="o">(</span>0x7f9eab5a0500<span class="o">)</span></code></pre></div>
+
+<p>Note how the pointer referenced by &quot;a meta-data&quot; is different on the third printout.
+Here is a graphical presentation of what is going on.</p>
+
+<p><img src="/assets/meta-data.png" alt="meta-data"></p>
+
+<p>Next, let&#39;s look at a more realistic example. See 
+<a href="/2014/09/13/h5py-reader/">this blog</a> for details. Our pipeline
+looks like this:</p>
+
+<p><img src="/assets/hdf5-pipeline.png" alt="hdf5 pipeline"></p>
+
+<p><code>HDF5Source</code>&#39;s <code>RequestInformation</code> is as follows:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
+        <span class="n">dims</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">WHOLE_EXTENT</span><span class="p">(),</span>
+            <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dims</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dims</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="mi">6</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p><code>RequestSubset</code>&#39;s <code>RequestInformation</code> is as follows:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+    <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">WHOLE_EXTENT</span><span class="p">(),</span> \
+        <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>You will notice the same design pattern:</p>
+
+<ul>
+<li><code>HDF5Source</code> creates meta-data in <code>RequestInformation</code>,</li>
+<li>This meta-data is copied to the output of <code>RequestSubset</code> by the pipeline,</li>
+<li><code>RequestSubset</code> overwrites this meta-data in <code>RequestInformation</code> to fit its output.</li>
+</ul>
+
+<p>Although the meta-data involved as well as the copying logic (specially
+when multiple inputs and/or outputs are involved) can get fairly complicated, if you
+understand this basic pattern, you will be able to decipher much of what is going
+on during <code>RequestInformation</code>.</p>
+
+<p>I will cover <code>RequestUpdateExtent</code> and <code>RequestData</code> in upcoming blogs. Afterwards,
+we will be fully equipped to explore what can be achieved using VTK&#39;s pipeline.</p>
+
+<!--
+
+
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">MySource RequestInformation:
+vtkInformation <span class="o">(</span>0x7fc6b3e1c5c0<span class="o">)</span>
+  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc6b3e1e390<span class="o">)</span>
+
+MyFilter RequestInformation:
+vtkInformation <span class="o">(</span>0x7fc6b3e1c940<span class="o">)</span>
+  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc6b3e1f1b0<span class="o">)</span>
+
+MyFilter RequestUpdateExtent:
+vtkInformation <span class="o">(</span>0x7fc6b3e1c940<span class="o">)</span>
+  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc6b3e1f1b0<span class="o">)</span>
+  UPDATE_PIECE_NUMBER: 0
+  UPDATE_NUMBER_OF_PIECES: 1
+  UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+  UPDATE_EXTENT_INITIALIZED: 0
+
+MySource RequestUpdateExtent:
+vtkInformation <span class="o">(</span>0x7fc6b3e1c5c0<span class="o">)</span>
+  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc6b3e1e390<span class="o">)</span>
+  UPDATE_PIECE_NUMBER: 0
+  UPDATE_NUMBER_OF_PIECES: 1
+  UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+  UPDATE_EXTENT_INITIALIZED: 0
+
+MySource RequestData:
+vtkInformation <span class="o">(</span>0x7fc6b3e1c5c0<span class="o">)</span>
+  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc6b3e1e390<span class="o">)</span>
+  UPDATE_PIECE_NUMBER: 0
+  UPDATE_NUMBER_OF_PIECES: 1
+  UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+  UPDATE_EXTENT_INITIALIZED: 0
+
+MyFilter RequestData:
+vtkInformation <span class="o">(</span>0x7fc6b3e1c940<span class="o">)</span>
+  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc6b3e1f1b0<span class="o">)</span>
+  UPDATE_PIECE_NUMBER: 0
+  UPDATE_NUMBER_OF_PIECES: 1
+  UPDATE_NUMBER_OF_GHOST_LEVELS: 0
+  UPDATE_EXTENT_INITIALIZED: 0</code></pre></div>
+
+
+-->
 
   </div>
   

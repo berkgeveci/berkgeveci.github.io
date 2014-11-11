@@ -51,393 +51,59 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/09/18/pipeline/">
-        A VTK pipeline primer (part 1)
+      <a href="/2014/10/04/issue-hackathon/">
+        VTK issue hackathon
       </a>
     </h1>
 
-    <span class="post-date">18 Sep 2014</span>
+    <span class="post-date">04 Oct 2014</span>
 
-    <p>In my last two blogs (<a href="/2014/09/05/vtk-python-algorithm/">1</a>,
-<a href="/2014/09/13/h5py-reader/">2</a>), I introduced the <code>vtkPythonAlgorithm</code>
-and started demonstrating how it can be used to develop sources and algorithms
-in Python. In those articles, I touched on a few VTK pipeline concepts. For
-those are not familiar with VTK&#39;s pipeline, this may have been somewhat hard
-to follow. So in this article and the next, I will take a step back and explain 
-how VTK&#39;s pipeline works in more detail.</p>
+    <p>On October 2nd 2014, we held a hackathon to reduce the number of issues in the VTK bug
+tracker in anticipation of VTK&#39;s migration to a new bug tracker (as part of migrating to
+Gitlab probably). We also hope to come to a place where we triage bugs early and keep
+the issue tracker relatively clean.</p>
 
-<h2>Preliminaries</h2>
+<p><img src="/assets/hackathon.jpg" alt="VTK issue hackathon"></p>
 
-<h3><code>vtkInformation</code> and <code>vtkInformationVector</code></h3>
-
-<p>These two classes are used all over the VTK: in algorithms, in executives,
-in data objects. They were developed by Brad King when we overhauled the VTK
-pipeline in VTK 4. Conceptually, they are simply maps. The key is a pointer
-to an instance of a <code>vtkInformationKey</code> (or of a subclass) and the value is an
-instance of <code>vtkObjectBase</code> (or of a subclass). Let&#39;s start with an example.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>   <span class="kn">import</span> <span class="nn">vtk</span>
-<span class="mi">2</span>   <span class="kn">from</span> <span class="nn">vtk.util</span> <span class="kn">import</span> <span class="n">keys</span>
-<span class="mi">3</span>   
-<span class="mi">4</span>   <span class="n">key</span> <span class="o">=</span> <span class="n">keys</span><span class="o">.</span><span class="n">MakeKey</span><span class="p">(</span><span class="n">keys</span><span class="o">.</span><span class="n">ObjectBaseKey</span><span class="p">,</span> <span class="s">&quot;a new key&quot;</span><span class="p">,</span> <span class="s">&quot;some class&quot;</span><span class="p">)</span>
-<span class="mi">5</span>   <span class="k">print</span> <span class="s">&quot;key:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">key</span>
-<span class="mi">6</span>   
-<span class="mi">7</span>   <span class="n">info</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkInformation</span><span class="p">()</span>
-<span class="mi">8</span>   <span class="k">print</span> <span class="s">&quot;info:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">info</span>
-<span class="mi">9</span>   
-<span class="mi">10</span>  <span class="n">key</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkObject</span><span class="p">())</span>
-<span class="mi">11</span>  <span class="k">print</span> <span class="s">&quot;info after set:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">info</span></code></pre></div>
-
-<p>This will print the following.</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">key:
-vtkInformationObjectBaseKey <span class="o">(</span>0x7f8390698680<span class="o">)</span>
-  Reference Count: 1
-
-info:
-vtkInformation <span class="o">(</span>0x7f8390466ff0<span class="o">)</span>
-  Debug: Off
-  Modified Time: 51
-  Reference Count: 1
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-
-info after <span class="nb">set</span>:
-vtkInformation <span class="o">(</span>0x7f8390466ff0<span class="o">)</span>
-  Debug: Off
-  Modified Time: 54
-  Reference Count: 1
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  a new key: vtkObject<span class="o">(</span>0x7f839069b130<span class="o">)</span></code></pre></div>
-
-<p>On line 4, we created a new key type. Most often you will use existing keys but it
-is useful to know how to create them. This key has a name <code>a new key</code> and location
-<code>some class</code>. The latter is usually the name of the class this key is accessed from.
-More on that later. One line 7, we create an empty information object. On line 10,
-we add a new <code>vtkObject</code> to the information object. Not that line 10 looks backwards
-and it feels more natural to do the following instead.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkObject</span><span class="p">())</span></code></pre></div>
-
-<p>Both of these work. We&#39;ll see below why. As I mentioned above, the values stored
-in an information object are all <code>vtkObjectBase</code> and subclass instances. However,
-it is relatively easy to store simple types by wrapping them with simple
-<code>vtkObjectBase</code> subclasses. For example, we can store integers easily as below.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">key</span> <span class="o">=</span> <span class="n">keys</span><span class="o">.</span><span class="n">MakeKey</span><span class="p">(</span><span class="n">keys</span><span class="o">.</span><span class="n">IntegerKey</span><span class="p">,</span> <span class="s">&quot;another key&quot;</span><span class="p">,</span> <span class="s">&quot;some class&quot;</span><span class="p">)</span>
-
-<span class="n">key</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="mi">12</span><span class="p">)</span>
-<span class="k">print</span> <span class="n">info</span></code></pre></div>
-
-<p>This prints</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">vtkInformation <span class="o">(</span>0x7fc3f0db0c80<span class="o">)</span>
-  Debug: Off
-  Modified Time: 55
-  Reference Count: 1
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  a new key: vtkObject<span class="o">(</span>0x7f8078e87be0<span class="o">)</span>
-  another key: 12</code></pre></div>
-
-<p>This example may have made it a bit more clear why the methods to set values
-on information objects are in the key classes. Using the keys&#39; API to set
-values enables us to store multiple types without having to make
-<code>vtkInformation</code> aware of all types. As long as it can wrap a value or a set
-of values in a subclass of <code>vtkObjectBase</code>, a key can store data of any type.
-On the other hand, <code>vtkInformation</code> can only provide the API for the key types
-it is aware of. You can verify this by checking out <code>vtkInformation.h</code>. It has
-individual set/get methods for each key type it recognizes. Since most of the
-code that interact with information objects use already defined key types, you
-will see the <code>information.Set(key, value)</code> signature much more often. If you
-define your own key type, you will have to use the <code>key.Set(information,
-value)</code> signature.</p>
-
-<p>Most often, you will access existing keys rather than create new ones. Keys
-created in C++ usually exist with the scope of a class and are accessed by
-calling a static member function. Like so:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">info</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkInformation</span><span class="p">()</span>
-<span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_PIECE_NUMBER</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
-
-<span class="k">print</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_PIECE_NUMBER</span><span class="p">()</span>
-<span class="k">print</span> <span class="n">info</span></code></pre></div>
-
-<p>This will print the following.</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">vtkInformationIntegerKey <span class="o">(</span>0x7fe688c8fa50<span class="o">)</span>
-  Reference Count: 1
-
-vtkInformation <span class="o">(</span>0x7fe688e4ff80<span class="o">)</span>
-  Debug: Off
-  Modified Time: 66
-  Reference Count: 1
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  UPDATE_PIECE_NUMBER: 1</code></pre></div>
-
-<p>When writing code in C++, you can use various macros to create keys. For example,
-<code>vtkStreamingDemandDrivenPipeline.UPDATE_PIECE_NUMBER()</code> is created using the
-following.</p>
+<p>Here is the attendance list as far as I can tell:</p>
 
 <ul>
-<li>vtkStreamingDemandDrivenPipeline.h:</li>
+<li>Ken Martin</li>
+<li>Bill Lorensen</li>
+<li>Will Schroeder</li>
+<li>Bill Hoffman</li>
+<li>Berk Geveci</li>
+<li>Shawn Waldon</li>
+<li>Chuck Atkins</li>
+<li>Marcus Hanwell</li>
+<li>Utkarsh Ayachit</li>
+<li>Andy Bauer</li>
+<li>Ben Boeckel</li>
+<li>Dave DeMarle</li>
+<li>Cory Quammen</li>
+<li>David Gobbi</li>
+<li>David Cole</li>
+<li>Sean McBride</li>
 </ul>
 
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">static</span> <span class="n">vtkInformationIntegerKey</span><span class="o">*</span> <span class="nf">UPDATE_PIECE_NUMBER</span><span class="p">();</span></code></pre></div>
+<p>It was awesome working alongside these brilliant folks to improve VTK. Of
+course, we had to occasionally poke fun at the original developers (all 3 were
+there!) and blame them for some of the issues; all in good fun.</p>
 
-<ul>
-<li>vtkStreamingDemandDrivenPipeline.cxx:</li>
-</ul>
+<p>Before the hackathon, we had 189 open bugs. After the hackathon, we have 118 bugs.
+But that&#39;s not all, there is still a lot of code in Gerrit review. So if we include
+those, we are down to 91 bugs! So we closed a whopping 98 bugs in 1 day. To be fair,
+we closed many bugs because they were already fixed or contained feature requests that
+we didn&#39;t want to implement but we also fixed a large number of real issues. To see the 
+list of bugs that we closed, check out <a href="http://tinyurl.com/lrznr6w">this link</a> and look
+at the bugs that were closed around 10/2 2014. This list will grow as the changes
+currently in Gerrit review makes into master. The icing on the cake is that we have
+very little dashboard issues that resulted from the hackathon. Those should be resolved
+very soon.</p>
 
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">vtkInformationKeyMacro</span><span class="p">(</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="p">,</span> <span class="n">UPDATE_PIECE_NUMBER</span><span class="p">,</span> <span class="n">Integer</span><span class="p">);</span></code></pre></div>
-
-<p><code>vtkInformationVector</code> is a simple vector of <code>vtkInformation</code> objects. Here
-is a demonstration.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">key</span> <span class="o">=</span> <span class="n">keys</span><span class="o">.</span><span class="n">MakeKey</span><span class="p">(</span><span class="n">keys</span><span class="o">.</span><span class="n">IntegerKey</span><span class="p">,</span> <span class="s">&quot;another key&quot;</span><span class="p">,</span> <span class="s">&quot;some class&quot;</span><span class="p">)</span>
-
-<span class="n">iv</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkInformationVector</span><span class="p">()</span>
-
-<span class="n">i1</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkInformation</span><span class="p">()</span>
-<span class="n">i1</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
-<span class="n">iv</span><span class="o">.</span><span class="n">Append</span><span class="p">(</span><span class="n">i1</span><span class="p">)</span>
-
-<span class="n">i2</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkInformation</span><span class="p">()</span>
-<span class="n">i2</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
-<span class="n">iv</span><span class="o">.</span><span class="n">Append</span><span class="p">(</span><span class="n">i2</span><span class="p">)</span>
-
-<span class="k">print</span> <span class="n">iv</span>
-
-<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">):</span>
-    <span class="k">print</span> <span class="n">iv</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="n">i</span><span class="p">)</span></code></pre></div>
-
-<p>This will print the following.</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">vtkInformationVector <span class="o">(</span>0x7ff513e40f10<span class="o">)</span>
-  Debug: Off
-  Modified Time: 56
-  Reference Count: 1
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  Number of Information Objects: 2
-  Information Objects:
-    vtkInformation<span class="o">(</span>0x7ff513d33c10<span class="o">)</span>:
-      Debug: Off
-      Modified Time: 60
-      Reference Count: 2
-      Registered Events: <span class="o">(</span>none<span class="o">)</span>
-      another key: 10
-    vtkInformation<span class="o">(</span>0x7ff513e42230<span class="o">)</span>:
-      Debug: Off
-      Modified Time: 63
-      Reference Count: 2
-      Registered Events: <span class="o">(</span>none<span class="o">)</span>
-      another key: 20
-
-
-vtkInformation <span class="o">(</span>0x7ff513d33c10<span class="o">)</span>
-  Debug: Off
-  Modified Time: 60
-  Reference Count: 2
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  another key: 10
-
-
-vtkInformation <span class="o">(</span>0x7ff513e42230<span class="o">)</span>
-  Debug: Off
-  Modified Time: 63
-  Reference Count: 2
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  another key: 20</code></pre></div>
-
-<h3>Connecting algorithms to create pipelines</h3>
-
-<p>Next, let&#39;s check out how algorithms are connected together to form
-pipelines. Below is a simple pipeline consisting of 2 sources (s0 and s1)
-and 3 filters (f0, f1 and f2).</p>
-
-<p><img src="/assets/example-pipeline.png" alt="example pipeline" style="width: 600px; margin-left:auto; margin-right: auto"/></p>
-
-<ul>
-<li>During execution, data flows in the direction of the arrows,</li>
-<li>s0, s1 and s2 are simple sources with 1 output each,</li>
-<li>f0 is a filter with 2 inputs and 1 output. The first input (input 0) is repeatable,</li>
-<li>f1 and f2 are simple filters with 1 input and 1 output.</li>
-</ul>
-
-<p>The code to create this pipeline would look something like this:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s0</span> <span class="o">=</span> <span class="n">Source</span><span class="p">()</span>
-<span class="n">s1</span> <span class="o">=</span> <span class="n">Source</span><span class="p">()</span>
-<span class="n">s2</span> <span class="o">=</span> <span class="n">Source</span><span class="p">()</span>
-
-<span class="n">f0</span> <span class="o">=</span> <span class="n">Filter0</span><span class="p">()</span>
-<span class="n">f0</span><span class="o">.</span><span class="n">AddInputConnection</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">s0</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">f0</span><span class="o">.</span><span class="n">AddInputConnection</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">s1</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">f0</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">s2</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-
-<span class="n">f1</span> <span class="o">=</span> <span class="n">Filter1</span><span class="p">()</span>
-<span class="n">f1</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">f0</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
-
-<span class="n">f2</span> <span class="o">=</span> <span class="n">Filter1</span><span class="p">()</span>
-<span class="n">f2</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">f0</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span></code></pre></div>
-
-<p>This is enough detail about the pipeline for now. We&#39;ll cover the pipeline
-execution order and passes in the next blog. Let&#39;s see what each of these
-algorithm classes looks like.</p>
-
-<p><strong>Source:</strong></p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
-
-<span class="k">class</span> <span class="nc">Source</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
-        <span class="k">print</span> <span class="n">info</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
-
-<p>When the pipeline is updated with <code>f1.Update()</code> or <code>f2.Update()</code>, the
-<code>Source</code> instances will print the following 3 times.</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">vtkInformation <span class="o">(</span>0x7fb87263a8b0<span class="o">)</span>
-  Debug: Off
-  Modified Time: 610
-  Reference Count: 3
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  PRODUCER: vtkCompositeDataPipeline<span class="o">(</span>0x7fb872638730<span class="o">)</span> port 0
-  UPDATE_EXTENT_INITIALIZED: 0
-  UPDATE_PIECE_NUMBER: 0
-  UPDATE_NUMBER_OF_PIECES: 1
-  UPDATE_NUMBER_OF_GHOST_LEVELS: 0
-  DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fb8726428c0<span class="o">)</span>
-  CONSUMERS: vtkCompositeDataPipeline<span class="o">(</span>0x7fb8726397d0<span class="o">)</span> port 0</code></pre></div>
-
-<p>This class is pretty self-explanatory. Note how in <code>RequestData()</code>,
-there is a direct relationship between the contents of <code>inInfo</code> and
-the input connections and <code>outInfo</code> and output connections.  In the
-cae of a source, <code>outInfo</code>, which is a <code>vtkInformationVector</code> contains
-only one <code>vtkInformation</code> object corresponding to the only output.
-<code>InInfo</code> on the other hand will be empty since this is a source and
-has no input ports.</p>
-
-<p><strong>Filter1:</strong></p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">Filter1</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="nb">input</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
-
-<p>This is also fairly straightforward. A filter with one input and one output.
-<code>InInfo</code> will contain one <code>vtkInformationVector</code> (first input port) which will
-contain one <code>vtkInformation</code> (first and the only connection).</p>
-
-<p>Finally, let&#39;s look at <code>Filter0</code>, which is the most complicated algorithm
-in the example:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">Filter0</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span>
-
-    <span class="k">def</span> <span class="nf">FillInputPortInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">port</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkAlgorithm</span><span class="o">.</span><span class="n">INPUT_IS_REPEATABLE</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="k">print</span> <span class="n">inInfo</span>
-        <span class="k">print</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="nb">input</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
-
-<p>Overall, this algorithm still looks fairly simple. Its one unusual attribute
-is how it sets the first port to be repeatable in <code>FillInputPortInformation</code>.
-This means that this port can accept an arbitrary number of connections, which
-are established using <code>AddInputConnection()</code>. The most common example of such
-an algorithm is <code>vtkAppendFilter</code>. This filter accepts multiple inputs, which
-it appends together to produce 1 output.</p>
-
-<p>When the pipeline is updated, this will print the following.</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh"><span class="o">((</span>vtkInformationVector<span class="o">)</span>0x11665b830, <span class="o">(</span>vtkInformationVector<span class="o">)</span>0x11665b8f0<span class="o">)</span>
-vtkInformationVector <span class="o">(</span>0x7fc52058be30<span class="o">)</span>
-  Debug: Off
-  Modified Time: 123
-  Reference Count: 2
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  Number of Information Objects: 2
-  Information Objects:
-    vtkInformation<span class="o">(</span>0x7fc52058bef0<span class="o">)</span>:
-      Debug: Off
-      Modified Time: 666
-      Reference Count: 2
-      Registered Events: <span class="o">(</span>none<span class="o">)</span>
-      CONSUMERS: vtkCompositeDataPipeline<span class="o">(</span>0x7fc52058ae10<span class="o">)</span> port 0
-      PRODUCER: vtkCompositeDataPipeline<span class="o">(</span>0x7fc520589d70<span class="o">)</span> port 0
-      UPDATE_EXTENT_INITIALIZED: 0
-      UPDATE_PIECE_NUMBER: 0
-      UPDATE_NUMBER_OF_PIECES: 1
-      UPDATE_NUMBER_OF_GHOST_LEVELS: 0
-      DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc520593f00<span class="o">)</span>
-    vtkInformation<span class="o">(</span>0x7fc52058d2d0<span class="o">)</span>:
-      Debug: Off
-      Modified Time: 700
-      Reference Count: 2
-      Registered Events: <span class="o">(</span>none<span class="o">)</span>
-      CONSUMERS: vtkCompositeDataPipeline<span class="o">(</span>0x7fc52058ae10<span class="o">)</span> port 0
-      PRODUCER: vtkCompositeDataPipeline<span class="o">(</span>0x7fc52058c2b0<span class="o">)</span> port 0
-      UPDATE_EXTENT_INITIALIZED: 0
-      UPDATE_PIECE_NUMBER: 0
-      UPDATE_NUMBER_OF_PIECES: 1
-      UPDATE_NUMBER_OF_GHOST_LEVELS: 0
-      DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc5205946b0<span class="o">)</span>
-
- vtkInformationVector <span class="o">(</span>0x7fc52058be90<span class="o">)</span>
-  Debug: Off
-  Modified Time: 124
-  Reference Count: 2
-  Registered Events: <span class="o">(</span>none<span class="o">)</span>
-  Number of Information Objects: 1
-  Information Objects:
-    vtkInformation<span class="o">(</span>0x7fc52058e610<span class="o">)</span>:
-      Debug: Off
-      Modified Time: 734
-      Reference Count: 2
-      Registered Events: <span class="o">(</span>none<span class="o">)</span>
-      CONSUMERS: vtkCompositeDataPipeline<span class="o">(</span>0x7fc52058ae10<span class="o">)</span> port 1
-      PRODUCER: vtkCompositeDataPipeline<span class="o">(</span>0x7fc52058d690<span class="o">)</span> port 0
-      UPDATE_EXTENT_INITIALIZED: 0
-      UPDATE_PIECE_NUMBER: 0
-      UPDATE_NUMBER_OF_PIECES: 1
-      UPDATE_NUMBER_OF_GHOST_LEVELS: 0
-      DATA_OBJECT: vtkPolyData<span class="o">(</span>0x7fc520594e50<span class="o">)</span></code></pre></div>
-
-<p>If you look at the output carefully, you will notice that <code>inInfo</code> contains
-2 <code>vtkInformationVector</code> objects, each corresponding to 2 input ports.
-The first port is repeatable and contains 2 connections. Therefore, the
-first <code>vtkInformationVector</code> contains 2 <code>vtkInformation</code> objects. The
-second port accepts only 1 connection and hence the second <code>vtkInformationVector</code>
-contains only <code>vtkInformation</code> object.</p>
-
-<p>Hopefully, this gives you enough information to get started with writing
-basic algorithms. In my next blog, I will cover how the pipelines performs
-multiple passes during execution and how these passes are implement by
-algorithms.</p>
+<p>After the hackathon, some of us went to <a href="http://saltyspub.com/">Salty&#39;s</a> for some
+grub and beers. Overall very successful and fun hackathon. I am already looking forward
+to the next one.</p>
 
   </div>
   
