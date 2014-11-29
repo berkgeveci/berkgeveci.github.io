@@ -3,7 +3,7 @@ from vtk.numpy_interface import dataset_adapter as dsa
 from vtk.util.vtkAlgorithm import VTKPythonAlgorithmBase
 import vtk
 
-t = np.linspace(0, 16*np.pi, 160)
+t = np.linspace(0, 2*np.pi, 20)
 
 class VelocitySource(VTKPythonAlgorithmBase):
     def __init__(self):
