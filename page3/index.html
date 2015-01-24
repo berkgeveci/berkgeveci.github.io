@@ -51,353 +51,376 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/11/16/simple-particle/">
-        A Simple Particle Advection Example
+      <a href="/2014/11/28/compositing/">
+        Spatial Streaming and Compositing
       </a>
     </h1>
 
-    <span class="post-date">16 Nov 2014</span>
+    <span class="post-date">28 Nov 2014</span>
 
-    <p>In my <a href="/2014/11/09/streaming-time/">last blog</a>, I introduced temporal
-streaming in VTK. For this, I used a simple unsteady flow-field example and at
-the end of the blog, I challenged the readers to developing a simple particle advection
-code built on temporal streaming concepts. Here is my implementation of the
-particle integrator.</p>
+    <p>In my <a href="/2014/11/26/streaming-space/">last blog</a>, I talked about
+spatial streaming in VTK. The example I covered demonstrated how a pipeline
+consisting of a structured data source and a contour filter can be streamed
+in smaller chunks to create a collection of polydata objects, which can then
+be rendered. The downside of this approach is that the entirety of the contour
+geometry needs to be stored in memory for rendering. One way of getting
+around this limitation is to stream into a view. Here is an example.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">source</span> <span class="kn">import</span> <span class="o">*</span>
-<span class="kn">from</span> <span class="nn">vtk.util</span> <span class="kn">import</span> <span class="n">keys</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
+<span class="kn">import</span> <span class="nn">vtk</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
 
-<span class="n">TIME_VALUES</span> <span class="o">=</span> <span class="n">keys</span><span class="o">.</span><span class="n">MakeKey</span><span class="p">(</span><span class="n">keys</span><span class="o">.</span><span class="n">DoubleVectorKey</span><span class="p">,</span> <span class="s">&quot;Time Values&quot;</span><span class="p">,</span> <span class="s">&quot;particle.py&quot;</span><span class="p">)</span>
-
-<span class="k">class</span> <span class="nc">ParticleAdvection</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">StreamExtents</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkDataSet&#39;</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkUnstructuredGrid&#39;</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Cache</span> <span class="o">=</span> <span class="bp">None</span>
-        <span class="c"># Seed for the particles</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Source</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkLineSource</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Source</span><span class="o">.</span><span class="n">SetPoint1</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Source</span><span class="o">.</span><span class="n">SetPoint2</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Source</span><span class="o">.</span><span class="n">SetResolution</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Source</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Source</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span><span class="o">.</span><span class="n">GetNumberOfPoints</span><span class="p">()</span>
-        <span class="c"># We use the probe filter to sample the input</span>
-        <span class="c"># field at particle locations.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Probe</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkProbeFilter</span><span class="p">()</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkImageData&#39;</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 
-        <span class="c"># Create a polydata to represent the particle locations</span>
-        <span class="c"># at which we will sample the velocity fields.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">ProbePoints</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
-        <span class="n">pts</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPoints</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">ProbePoints</span><span class="o">.</span><span class="n">SetPoints</span><span class="p">(</span><span class="n">pts</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">=</span> <span class="mi">20</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">Probe</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ProbePoints</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">actor</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
+        <span class="n">actor</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="c"># Reset values.</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">TIME_STEPS</span><span class="p">())</span>
+        <span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
+        <span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">actor</span><span class="p">)</span>
 
-        <span class="c"># We accumulate all particles to one dataset so we don&#39;t really</span>
-        <span class="c"># produce temporal data that can be separately requested.</span>
-        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">TIME_STEPS</span><span class="p">())</span>
-        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">TIME_RANGE</span><span class="p">())</span>
-
-        <span class="c"># This is to give the next filter an idea about time</span>
-        <span class="c"># values. Taking a shortcut here. This should really</span>
-        <span class="c"># be a proper meta-data that is copied downstream.</span>
-        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">TIME_VALUES</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">))</span>
-
-        <span class="k">return</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
+        <span class="n">ren</span><span class="o">.</span><span class="n">GetActiveCamera</span><span class="p">()</span><span class="o">.</span><span class="n">SetPosition</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
+        <span class="c"># This allows us to stream into the view. OpenGL</span>
+        <span class="c"># takes care of compositing using the z-buffer</span>
+        <span class="c"># when Erase is set to off.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">EraseOff</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">DoubleBufferOff</span><span class="p">()</span>
 
     <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
         <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="c"># Ask for the next timestep.</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_TIME_STEP</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span><span class="p">])</span>
+        <span class="c"># Ask for the next extent.</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_NUMBER_OF_PIECES</span><span class="p">(),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span><span class="p">)</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_PIECE_NUMBER</span><span class="p">(),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span><span class="p">)</span>
         <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">ProbeVelocity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
-        <span class="c"># Update the particle locations we sample at</span>
-        <span class="n">pts</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Points</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">ProbePoints</span><span class="o">.</span><span class="n">GetPoints</span><span class="p">()</span><span class="o">.</span><span class="n">SetData</span><span class="p">(</span><span class="n">pts</span><span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">Probe</span><span class="o">.</span><span class="n">SetSourceData</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-
-        <span class="c"># Sample</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Probe</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-        <span class="n">p</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Probe</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-        <span class="c"># All we care about is the vector values/</span>
-        <span class="k">return</span> <span class="n">p</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;vectors&#39;</span><span class="p">]</span>
-
-    <span class="k">def</span> <span class="nf">DoParticle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t1</span><span class="p">,</span> <span class="n">t2</span><span class="p">):</span>
-        <span class="c"># Evaluate both timesteps at the current point</span>
-        <span class="n">v1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ProbeVelocity</span><span class="p">(</span><span class="n">t1</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-        <span class="n">v2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ProbeVelocity</span><span class="p">(</span><span class="n">t2</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-
-        <span class="c"># Use the average as the velocity</span>
-        <span class="n">v</span> <span class="o">=</span> <span class="p">(</span><span class="n">v1</span><span class="o">+</span><span class="n">v2</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span>
-        <span class="n">dt</span> <span class="o">=</span> <span class="n">t</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span><span class="p">]</span> <span class="o">-</span> <span class="n">t</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
-        <span class="c"># Advect particles</span>
-        <span class="n">pts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Points</span> <span class="o">+</span> <span class="n">v</span><span class="o">*</span><span class="n">dt</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="n">pts</span>
-        <span class="c"># Store new particle values in the output array</span>
-        <span class="n">idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">OutputPoints</span><span class="p">[</span><span class="n">idx</span><span class="p">:</span><span class="n">idx</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">pts</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">TimeValuesArray</span><span class="p">[</span><span class="n">idx</span><span class="p">:</span><span class="n">idx</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span><span class="p">]</span> <span class="o">=</span> <span class="n">t</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span><span class="p">]</span>
 
     <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
         <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
         <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">))</span>
 
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">Cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">DoParticle</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Cache</span><span class="p">,</span> <span class="n">inp</span><span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c"># First time step. Initialize.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+        <span class="n">contour</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+        <span class="n">rtdata</span> <span class="o">=</span> <span class="n">contour</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span>
+        <span class="n">color</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
+        <span class="n">color</span><span class="p">[:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span>
+        <span class="n">contour</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">color</span><span class="p">,</span> <span class="s">&quot;color&quot;</span><span class="p">)</span>
+        <span class="n">contour</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&quot;color&quot;</span><span class="p">)</span>
 
-            <span class="c"># This is where we will store the coordinates of all points</span>
-            <span class="c"># at all times</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">OutputPoints</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
-                <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">contour</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
 
-            <span class="c"># First time step uses the seed locations as the particle points</span>
-            <span class="n">pts</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPoints</span><span class="p">()</span>
-            <span class="n">pts</span><span class="o">.</span><span class="n">DeepCopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Source</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span><span class="o">.</span><span class="n">GetPoints</span><span class="p">())</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">pts</span><span class="o">.</span><span class="n">GetData</span><span class="p">())</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">OutputPoints</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Points</span>
-
-            <span class="c"># This will be a point array showing the time value of each</span>
-            <span class="c"># output point. This is necessary to differentiate output</span>
-            <span class="c"># points since we store all timesteps in the output.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">TimeValuesArray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">TimeValuesArray</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">NumPts</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
             <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
-            <span class="n">c</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">NewInstance</span><span class="p">()</span>
-            <span class="n">c</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-            <span class="n">c</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Cache</span> <span class="o">=</span> <span class="n">c</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span>
+                <span class="mi">1</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c"># Stop execution</span>
             <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
                 <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
             <span class="c"># Reset for next potential execution.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="c"># Create output</span>
-            <span class="n">outputPts</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">OutputPoints</span><span class="p">)</span>
-            <span class="n">pts</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPoints</span><span class="p">()</span>
-            <span class="n">pts</span><span class="o">.</span><span class="n">SetData</span><span class="p">(</span><span class="n">outputPts</span><span class="p">)</span>
-            <span class="n">output</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnstructuredGrid</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">))</span>
-            <span class="n">output</span><span class="o">.</span><span class="n">SetPoints</span><span class="p">(</span><span class="n">pts</span><span class="p">)</span>
-            <span class="n">tvs</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValuesArray</span><span class="p">)</span>
-            <span class="n">tvs</span><span class="o">.</span><span class="n">SetName</span><span class="p">(</span><span class="s">&quot;Time Values&quot;</span><span class="p">)</span>
-            <span class="n">output</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">tvs</span><span class="p">)</span>
-            <span class="c"># Clean up</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Cache</span> <span class="o">=</span> <span class="bp">None</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">OutputPoints</span> <span class="o">=</span> <span class="bp">None</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="bp">None</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
 
-<p>Most of the code in this filter actually takes care of initializing and maintaining
-data structures. The interesting parts are quite short. The streaming is implemented
-with something as simple as this:</p>
+            <span class="n">w2i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkWindowToImageFilter</span><span class="p">()</span>
+            <span class="n">w2i</span><span class="o">.</span><span class="n">SetInput</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="p">)</span>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="c"># Ask for the next timestep.</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_TIME_STEP</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span><span class="p">])</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">Cache</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">DoParticle</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Cache</span><span class="p">,</span> <span class="n">inp</span><span class="p">)</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
-            <span class="n">c</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">NewInstance</span><span class="p">()</span>
-            <span class="n">c</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-            <span class="n">c</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Cache</span> <span class="o">=</span> <span class="n">c</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c"># Stop execution</span>
-            <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
-
-<p>Note that we don&#39;t do any computing in the first time step (because we need
-pairs of two). For all other time steps, we use the previously cached dataset
-together with the current dataset to do the particle integration. Also,
-we tell the pipeline to keep executing until the last time step is reached.
-Simple.</p>
-
-<p>The integration code is even simpler:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">DoParticle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t1</span><span class="p">,</span> <span class="n">t2</span><span class="p">):</span>
-        <span class="c"># Evaluate both timesteps at the current point</span>
-        <span class="n">v1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ProbeVelocity</span><span class="p">(</span><span class="n">t1</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-        <span class="n">v2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ProbeVelocity</span><span class="p">(</span><span class="n">t2</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-
-        <span class="c"># Use the average as the velocity</span>
-        <span class="n">v</span> <span class="o">=</span> <span class="p">(</span><span class="n">v1</span><span class="o">+</span><span class="n">v2</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span>
-        <span class="n">dt</span> <span class="o">=</span> <span class="n">t</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span><span class="p">]</span> <span class="o">-</span> <span class="n">t</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateTimeIndex</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
-        <span class="c"># Advect particles</span>
-        <span class="n">pts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Points</span> <span class="o">+</span> <span class="n">v</span><span class="o">*</span><span class="n">dt</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="n">pts</span></code></pre></div>
-
-<p>The <code>ProbeVelocity</code> function takes care of evaluating the velocity field
-at the given point coordinates. In this case, we evaluate both the previous
-and current time step at the previous particle locations. Then we average
-these velocities and advect the particles with this average value to obtain
-first order integration. In the actual VTK filter, we spent quite a bit
-of effort optimizing this part. Evaluating a field at a particular coordinates
-requires finding the cell containing it, which is non-trivial work for any
-grid types other than rectilinear grids.</p>
-
-<p>The rest of code simply does bookkeeping. We can evaluate the filter with
-the following code.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s</span> <span class="o">=</span> <span class="n">VelocitySource</span><span class="p">()</span>
-
-<span class="n">f</span> <span class="o">=</span> <span class="n">ParticleAdvection</span><span class="p">()</span>
-<span class="n">f</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-
-<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-<span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-<span class="n">s</span><span class="o">.</span><span class="n">SetRadius</span><span class="p">(</span><span class="mf">0.03</span><span class="p">)</span>
-<span class="n">glyph</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkGlyph3D</span><span class="p">()</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">SetSourceConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">SetScaleModeToDataScalingOff</span><span class="p">()</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-<span class="n">m</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">glyph</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">m</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-<span class="n">a</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="mi">500</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
-
-<p>We then get the following image.</p>
-
-<p><img src="/assets/particles.png" alt="particles"></p>
-
-<p>I also wrote a very simple filter to animate this results. Here it is.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">particle</span> <span class="kn">import</span> <span class="o">*</span>
-
-<span class="k">class</span> <span class="nc">AnimateParticles</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkUnstructuredGrid&#39;</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkUnstructuredGrid&#39;</span><span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">Threshold</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkThreshold</span><span class="p">()</span>
-
-    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="c"># We need to report that we are a time source to downstream.</span>
-        <span class="c"># We will use the TIME_VALUES from upstream for this.</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">TIME_VALUES</span><span class="p">)</span>
-        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">TIME_STEPS</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">,</span>
-            <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">))</span>
-        <span class="n">tr</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
-        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">TIME_RANGE</span><span class="p">(),</span> <span class="n">tr</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPNGWriter</span><span class="p">()</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w2i</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;composite1.png&quot;</span><span class="p">)</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span>
 
         <span class="k">return</span> <span class="mi">1</span>
 
+<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnstructuredGrid</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">))</span>
+<span class="n">s</span> <span class="o">=</span> <span class="n">StreamExtents</span><span class="p">()</span>
+<span class="n">s</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
 
-        <span class="n">oinfo</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">oinfo</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_TIME_STEP</span><span class="p">()):</span>
-            <span class="n">ut</span> <span class="o">=</span> <span class="n">oinfo</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_TIME_STEP</span><span class="p">())</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">ut</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">TimeValues</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="c"># Simply extract the particles where the Time Values array</span>
-        <span class="c"># matches the requested time value.</span>
-        <span class="n">tvs</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Time Values&#39;</span><span class="p">]</span>
-        <span class="n">newpts</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">Points</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tvs</span> <span class="o">==</span> <span class="n">ut</span><span class="p">)])</span>
-        <span class="n">pts</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPoints</span><span class="p">()</span>
-        <span class="n">pts</span><span class="o">.</span><span class="n">SetData</span><span class="p">(</span><span class="n">newpts</span><span class="p">)</span>
+<span class="n">s</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
 
-        <span class="n">output</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnstructuredGrid</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">)</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">SetPoints</span><span class="p">(</span><span class="n">pts</span><span class="p">)</span>
+<p>Note that this is very similar to the examples in the previous blog. The main
+difference is that this algorithm is a sink rather than a filter and instead
+of producing a polydata output which represents the contour, it produces an
+image. For this, we create a rendering pipeline in the constructor and then
+during each pipeline execution, we render the current contour geometry. Finally, we
+save the output image after the last render. In skeleton code, this looks like
+the following.</p>
 
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
 
-<p>Very simple filter. It takes the entire collection of particles (which is
-essentially a collection of particle paths) and takes out the particles that
-belong to the requested time step. By the way, when you look at this filter,
-you probably understand better why I created the <code>TIME_VALUES</code> meta-data and
-the <code>&quot;Time Values&quot;</code> variable in the particle filter.\</p>
+    <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">contour</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
 
-<p>We can now change our pipeline a bit to generate an animation. Here is the
-code:</p>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span>
+            <span class="mi">1</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># Stop execution</span>
+        <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
+        <span class="c"># Reset for next potential execution.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s</span> <span class="o">=</span> <span class="n">VelocitySource</span><span class="p">()</span>
+        <span class="n">w2i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkWindowToImageFilter</span><span class="p">()</span>
+        <span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span></code></pre></div>
 
-<span class="n">pa</span> <span class="o">=</span> <span class="n">ParticleAdvection</span><span class="p">()</span>
-<span class="n">pa</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<p>The trick that makes this example work is in these two lines:</p>
 
-<span class="n">anim</span> <span class="o">=</span> <span class="n">AnimateParticles</span><span class="p">()</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">pa</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">EraseOff</span><span class="p">()</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">DoubleBufferOff</span><span class="p">()</span></code></pre></div>
 
-<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-<span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-<span class="n">s</span><span class="o">.</span><span class="n">SetRadius</span><span class="p">(</span><span class="mf">0.03</span><span class="p">)</span>
-<span class="n">glyph</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkGlyph3D</span><span class="p">()</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">anim</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">SetSourceConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">glyph</span><span class="o">.</span><span class="n">SetScaleModeToDataScalingOff</span><span class="p">()</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-<span class="n">m</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">glyph</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-<span class="n">a</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="mi">500</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">time</span> <span class="ow">in</span> <span class="n">t</span><span class="p">:</span>
-    <span class="n">glyph</span><span class="o">.</span><span class="n">GetOutputInformation</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-        <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_TIME_STEP</span><span class="p">(),</span>
-        <span class="n">time</span><span class="p">)</span>
-    <span class="n">glyph</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
-
-<p>The output looks like this (click to animate):</p>
+<p>When the <code>Erase</code> mode is enabled, the render window renders each time on
+top of the same framebuffer and zbuffer without clearing them. OpenGL decides
+to draw a particular pixel or not depending on the previous value of the z
+buffer. If the old z value is smaller, it keeps the previous pixel.
+Otherwise, it overwrites the pixel. This works perfectly because the object
+we are rendering is opaque. Handling transparencly would require doing the
+passes in a certain order and blending the pixels. I leave that to you as
+an exercise. The output looks as follows. Click on the picture to see the
+streaming in action.</p>
 
 <figure>
-<img src="/assets/particles000.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/particles.gif"'/>
+<img src="/assets/composite1.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/composite_anim.gif"'/>
 </figure>
 
-<p>That&#39;s it folks. We&#39;ll dig into other types of streaming in the future.</p>
+<p>This example was mainly for demonstration. The same can be achieved in VTK
+without writing an algorithm. Here is the code.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
+
+<span class="n">ps</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPieceScalars</span><span class="p">()</span>
+<span class="n">ps</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+
+<span class="n">mapper</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">ps</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfSubPieces</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+
+<span class="n">actor</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
+<span class="n">actor</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">mapper</span><span class="p">)</span>
+
+<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
+<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">actor</span><span class="p">)</span>
+
+<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
+<span class="n">ren</span><span class="o">.</span><span class="n">GetActiveCamera</span><span class="p">()</span><span class="o">.</span><span class="n">SetPosition</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
+
+<p>The only special thing in this example is the <code>mapper.SetNumberOfSubPieces(20)</code>
+line which tells the mapper to stream its input in 20 steps. This uses the
+same logic as our example in that the mapper does multiple render passes when
+it is asked to render.</p>
+
+<h2>Parallel Compositing</h2>
+
+<p>The examples we covered so far are only one step away from parallel compositing
+so we might as well cover that too. In general, parallel sort last compositing
+involves rendering images with geometry local to each process, transferring
+the frame and zbuffers over the network and then comparing the z values to decide
+which pixels to keep from which framebuffer. For more details on compositing,
+I recommend checking out some of the papers out there, for example
+&quot;An Image Compositing Solution at Scale&quot; by Moreland et al. You should also check
+out <a href="http://icet.sandia.gov/">IceT</a>, which has become the open-source reference
+and production implementation used by many parallel tools including
+VTK/ParaView.</p>
+
+<p>Here is my simple two process example demonstrating compositing.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="kn">import</span> <span class="nn">vtk</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
+
+<span class="n">comm</span> <span class="o">=</span> <span class="n">MPI</span><span class="o">.</span><span class="n">COMM_WORLD</span>
+<span class="n">rank</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">Get_rank</span><span class="p">()</span>
+<span class="n">size</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">Get_size</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">size</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+    <span class="k">print</span> <span class="s">&#39;This example needs 2 MPI processes&#39;</span>
+    <span class="kn">import</span> <span class="nn">sys</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
+
+<span class="n">ps</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPieceScalars</span><span class="p">()</span>
+<span class="n">ps</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+
+<span class="n">mapper</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">ps</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="c"># For streaming</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfSubPieces</span><span class="p">(</span><span class="mi">20</span><span class="o">/</span><span class="n">size</span><span class="p">)</span>
+<span class="c"># For parallel execution</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfPieces</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetPiece</span><span class="p">(</span><span class="n">rank</span><span class="p">)</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+
+<span class="n">actor</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
+<span class="n">actor</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">mapper</span><span class="p">)</span>
+
+<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
+<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">actor</span><span class="p">)</span>
+
+<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
+<span class="n">ren</span><span class="o">.</span><span class="n">GetActiveCamera</span><span class="p">()</span><span class="o">.</span><span class="n">SetPosition</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
+<span class="c"># We need to do this manually because we want z buffer</span>
+<span class="c"># values to be consistent across MPI ranks.</span>
+<span class="n">ren</span><span class="o">.</span><span class="n">ResetCameraClippingRange</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
+
+<span class="c"># Grab the famebuffer</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnsignedCharArray</span><span class="p">()</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">GetRGBACharPixelData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+<span class="n">rgba</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+
+<span class="c"># Grab the zbuffer</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkFloatArray</span><span class="p">()</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">GetZbufferData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
+
+<span class="c"># Write individual framebuffers</span>
+<span class="n">i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="p">()</span>
+<span class="n">i</span><span class="o">.</span><span class="n">SetDimensions</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">i</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPNGWriter</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;composite2_</span><span class="si">%d</span><span class="s">.png&quot;</span> <span class="o">%</span> <span class="n">rank</span><span class="p">)</span>
+<span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="c"># Receive the frame and zbuffers from rank 1</span>
+    <span class="n">rgba2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">rgba</span><span class="p">)</span>
+    <span class="n">z2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">rgba2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">z2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
+    <span class="c"># Compositing.</span>
+    <span class="c"># Find where the zbuffer values of the remote</span>
+    <span class="c"># image are smaller (pixels are closer).</span>
+    <span class="n">loc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">z2</span> <span class="o">&lt;</span> <span class="n">z</span><span class="p">)</span>
+    <span class="c"># Use those locations to overwrite local pixels</span>
+    <span class="c"># with remote pixels.</span>
+    <span class="n">rgba</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">rgba2</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span>
+
+    <span class="c"># Write the composited image.</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="p">()</span>
+    <span class="n">i</span><span class="o">.</span><span class="n">SetDimensions</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">i</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+
+    <span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPNGWriter</span><span class="p">()</span>
+    <span class="n">w</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;composite2.png&quot;</span><span class="p">)</span>
+    <span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">rgba</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">z</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span></code></pre></div>
+
+<p>There are a few interesting bits to this example. First, the following
+sets up distributed processing pipeline as well as streaming:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># For streaming</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfSubPieces</span><span class="p">(</span><span class="mi">20</span><span class="o">/</span><span class="n">size</span><span class="p">)</span>
+<span class="c"># For parallel execution</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfPieces</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+<span class="n">mapper</span><span class="o">.</span><span class="n">SetPiece</span><span class="p">(</span><span class="n">rank</span><span class="p">)</span></code></pre></div>
+
+<p>Note how each process is asked to process the piece with index <code>rank</code> among
+a group of size <code>size</code>. In addition, each process is asked to stream using
+<code>20/size</code> pieces. With 2 ranks, we still have 20 pieces total. The only
+special thing we have to do for compositing to work is this.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># We need to do this manually because we want z buffer</span>
+<span class="c"># values to be consistent across MPI ranks.</span>
+<span class="n">ren</span><span class="o">.</span><span class="n">ResetCameraClippingRange</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span></code></pre></div>
+
+<p>If we don&#39;t set a global clipping range, each rank will use clipping planes
+based on local data which will lead to inconsistent zbuffer values (which
+are normalized to 0-1).</p>
+
+<p>Then we grab the frame and zbuffer with</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># Grab the famebuffer</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnsignedCharArray</span><span class="p">()</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">GetRGBACharPixelData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+<span class="n">rgba</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+
+<span class="c"># Grab the zbuffer</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkFloatArray</span><span class="p">()</span>
+<span class="n">renWin</span><span class="o">.</span><span class="n">GetZbufferData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">z</span><span class="p">)</span></code></pre></div>
+
+<p>Then transfer the buffer from rank 1 to 0 with</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="c"># Receive the frame and zbuffers from rank 1</span>
+    <span class="n">rgba2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">rgba</span><span class="p">)</span>
+    <span class="n">z2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">rgba2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">z2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">rgba</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">z</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span></code></pre></div>
+
+<p>Finally compositing is only 2 lines:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># Compositing.</span>
+    <span class="c"># Find where the zbuffer values of the remote</span>
+    <span class="c"># image are smaller (pixels are closer).</span>
+    <span class="n">loc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">z2</span> <span class="o">&lt;</span> <span class="n">z</span><span class="p">)</span>
+    <span class="c"># Use those locations to overwrite local pixels</span>
+    <span class="c"># with remote pixels.</span>
+    <span class="n">rgba</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">rgba2</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span></code></pre></div>
+
+<p>I leave it up to the reader as an exercise to extend this to more
+than 2 ranks. The paper by Ken et al. describes common ways of doing
+this including using a binary tree pattern.</p>
+
+<p>Here are the 2 local images and the final image:</p>
+
+<p><img src="/assets/composite3.png" alt="composite"></p>
+
+<p>In a future blog, I will talk about block-based streaming. Until then,
+happy coding.</p>
 
   </div>
   

@@ -51,159 +51,142 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/08/07/vtk-python-3/">
-        Improved VTK - numpy integration (part 3)
+      <a href="/2014/08/18/vtk-python-4/">
+        Improved VTK - numpy integration (part 4)
       </a>
     </h1>
 
-    <span class="post-date">07 Aug 2014</span>
+    <span class="post-date">18 Aug 2014</span>
 
-    <p>So far, I have briefly <a href="/2014/07/28/vtk-python/">introduced</a> the <code>numpy_interface</code> module and <a href="/2014/07/31/vtk-python-2/">discussed the dataset interface</a>. Finally, we get to something more interesting: working with arrays, datasets and algorithms. This is where the <code>numpy_interface</code> shines and makes certain data analysis tasks significantly easier. Let&#39;s start with a simple example.</p>
+    <p>Welcome to another blog where we continue to discover VTK&#39;s <code>numpy_interface</code> module. If you are not familiar with this module, I recommend checking out my previous blogs on it ([<a href="/2014/07/28/vtk-python/">1</a>], [<a href="/2014/07/31/vtk-python-2/">2</a>], [<a href="/2014/08/07/vtk-python-3/">3</a>]). In this blog, I will talk about how <code>numpy_interface</code> can be used in a data parallel way. We will be using VTK&#39;s MPI support for this - through VTK&#39;s own vtkMultiProcessController and mpi4py. You may want to check <a href="http://www.kitware.com/blog/home/post/716">my last blog</a> on VTK&#39;s mpi4py integration for some details.</p>
+
+<p>Let&#39;s get started. First, if you want to run these examples yourself, make sure that VTK is compiled with MPI support on by setting VTK<em>Group</em>MPI to ON during the CMake configuration step. The simplest way to run these examples is to use the pvtkpython executable that gets compiled when Python and MPI support are on. Pvtkpython can be run from the command line as follows (check out your MPI documentation for details).</p>
+<div class="highlight"><pre><code class="language-text" data-lang="text">mpiexec -n 3 ./bin/pvtkpython
+</code></pre></div>
+<p>Now, let&#39;s start with a simple example.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
+
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+<span class="n">size</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetNumberOfProcesses</span><span class="p">()</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+
+<span class="k">print</span> <span class="n">w</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">GetScalars</span><span class="p">()</span><span class="o">.</span><span class="n">GetRange</span><span class="p">()</span></code></pre></div>
+
+<p>When I run this example on my laptop, I get the following output:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="p">(</span><span class="mf">37.35310363769531</span><span class="p">,</span> <span class="mf">251.69105529785156</span><span class="p">)</span>
+<span class="p">(</span><span class="mf">49.75050354003906</span><span class="p">,</span> <span class="mf">276.8288269042969</span><span class="p">)</span>
+<span class="p">(</span><span class="mf">37.35310363769531</span><span class="p">,</span> <span class="mf">266.57025146484375</span><span class="p">)</span></code></pre></div>
+
+<p>Depending on a particular run and your OS, you may see something similar or something a bit garbled. Since I didn&#39;t restrict the <code>print</code> call to a particular rank, all processes will print out roughly at the same time and depending on the timing and buffering, may end up mixing up with each others&#39; output. If you examine the output above, you will notice that the overall range of the scalars is (37.35310363769531, 276.8288269042969), which we can confirm by running the example serially.</p>
+
+<p>Note that <code>vtkRTAnalyticSource</code> is a parallel-aware source and produces partitioned data. The following lines are what tell <code>vtkRTAnalyticSource</code> to produce its output in a distributed way</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+
+<span class="c"># First we need to ask the source to produce</span>
+<span class="c"># meta-data. Unless UpdateInformation() is</span>
+<span class="c"># called first, SetUpdateExtent() below will</span>
+<span class="c"># have no effect</span>
+<span class="n">w</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
+
+<span class="c"># Ask the source to produce &quot;size&quot; pieces and</span>
+<span class="c"># select the piece of index &quot;rank&quot; for this process.</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+<span class="c"># Cause execution. Note that the source has to</span>
+<span class="c"># be updated directly for the above request to</span>
+<span class="c"># work. Otherwise, downstream pipeline can overwrite</span>
+<span class="c"># requested piece information.</span>
+<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
+
+<p>For more details, see <a href="http://www.vtk.org/Wiki/VTK/Parallel_Pipeline">this page</a>.</p>
+
+<p>So how can we find out the global min and max of the scalars (RTData) array? One way is to use mpi4py to perform a reduction of local values of each process. Or we can use the <code>numpy_interface.algorithms</code> module. Add the following code to the end of our example.</p>
 
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
 <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span>
-<span class="kn">import</span> <span class="nn">vtk</span>
 
-<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-<span class="n">image</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-<span class="n">rtdata</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span>
+<span class="n">w</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="n">rtdata</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span>
+<span class="n">_min</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
+<span class="n">_max</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
 
-<span class="n">tets</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSetTriangleFilter</span><span class="p">()</span>
-<span class="n">tets</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">tets</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-<span class="n">ugrid</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">tets</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-<span class="n">rtdata2</span> <span class="o">=</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span></code></pre></div>
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="k">print</span> <span class="n">_min</span><span class="p">,</span> <span class="n">_max</span></code></pre></div>
 
-<p>Here we created two datasets: an image data (vtkImageData) and an unstructured grid (vtkUnstructuredGrid). They essentially represent the same data but the unstructured grid is created by tetrahedralizing the image data. So we expect that unstructured grid to have the same points but more cells (tetrahedra).</p>
+<p>This should print the following.</p>
 
-<h2>Array API</h2>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mf">37.3531036377</span> <span class="mf">276.828826904</span></code></pre></div>
 
-<p><code>Numpy_interface</code> array objects behave very similar to numpy arrays. In fact, arrays from <code>vtkDataSet</code> subclasses are instances of <code>VTKArray</code>, which is a subclass of <code>numpy.ndarray</code>. Arrays from <code>vtkCompositeDataSet</code> and subclasses are not numpy arrays but behave very similarly. I will outline the differences in a separate article. Let&#39;s start with the basics. All of the following work as expected.</p>
+<p>That simple! All algorithms in the <code>numpy_interface.algorithms</code> module work properly in parallel. Note that <code>min</code>, <code>max</code> and any other parallel algorithm will return the same value on all ranks.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="mf">60.763466</span>
+<p>It is possible to force these algorithms to produce local values by setting their controller argument as follows.</p>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-<span class="mf">57.113735</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># vtkDummyController is a replacement for vtkMPIController</span>
+<span class="c"># that works only locally to each rank.</span>
+<span class="n">_min</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">rtdata</span><span class="p">,</span> <span class="n">controller</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDummyController</span><span class="p">())</span>
+<span class="n">_max</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">rtdata</span><span class="p">,</span> <span class="n">controller</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDummyController</span><span class="p">())</span>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">10</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
-<span class="n">VTKArray</span><span class="p">([</span>  <span class="mf">60.76346588</span><span class="p">,</span>   <span class="mf">95.53707886</span><span class="p">,</span>   <span class="mf">94.97672272</span><span class="p">,</span>  <span class="mf">108.49817657</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="k">print</span> <span class="n">_min</span><span class="p">,</span> <span class="n">_max</span></code></pre></div>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span> <span class="o">+</span> <span class="mi">1</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">61.</span>
-<span class="mi">76346588</span><span class="p">,</span>  <span class="mf">86.87795258</span><span class="p">,</span>  <span class="mf">73.80931091</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>  <span class="mf">68.51051331</span><span class="p">,</span>
-        <span class="mf">44.34006882</span><span class="p">,</span>  <span class="mf">58.1137352</span> <span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+<p>This will print the following.</p>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span> <span class="o">&lt;</span> <span class="mi">70</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="bp">True</span> <span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>  <span class="bp">True</span><span class="p">,</span>  <span class="bp">True</span><span class="p">,</span>  <span class="bp">True</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mf">37.3531036377</span> <span class="mf">251.691055298</span></code></pre></div>
 
-<span class="c"># We will cover algorithms later. This is to generate a vector field.</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">avector</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
+<p>All algorithms in the <code>numpy_interface.algorithms</code> module were designed to work in parallel. If you use numpy algorithms directly, you will have to use mpi4py and do the proper reduction.</p>
 
-<span class="c"># To demonstrate that avector is really a vector</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
-<span class="p">(</span><span class="mi">9261</span><span class="p">,)</span>
+<p>One final thing. <code>Numpy.dataset_adapter</code> and <code>numpy.algorithms</code> were designed to work properly even when an array does not exist on one or more of the ranks. This occurs when a source can produce a limited number of pieces (1 being the most common case) and the size of the parallel job is larger. Let&#39;s start with an example:</p>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">avector</span><span class="p">)</span>
-<span class="p">(</span><span class="mi">9261</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">avector</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">25.69367027</span><span class="p">,</span>   <span class="mf">6.59600449</span><span class="p">,</span>   <span class="mf">5.38400745</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.58120966</span><span class="p">,</span>
-        <span class="o">-</span><span class="mf">5.77147198</span><span class="p">,</span>  <span class="mf">13.19447994</span><span class="p">])</span></code></pre></div>
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
 
-<p>A few things to note in this example:</p>
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+<span class="n">size</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetNumberOfProcesses</span><span class="p">()</span>
 
-<ul>
-<li>Single component arrays always have the following shape: (ntuples,) and not (ntuples, 1)</li>
-<li>Multiple component arrays have the following shape: (ntuples, ncomponents)</li>
-<li>Tensor arrays have the following shape: (ntuples, 3, 3)</li>
-<li>The above holds even for images and other structured data. All arrays have 1 dimension (1 component arrays), 2 dimensions (multi-component arrays) or 3 dimensions (tensor arrays).</li>
-</ul>
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCubeSource</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">c</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
 
-<p>One more cool thing. It is possible to use boolean arrays to index arrays. So the following works very nicely:</p>
+<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span><span class="p">[</span><span class="n">rtdata</span> <span class="o">&lt;</span> <span class="mi">70</span><span class="p">]</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">60.76346588</span><span class="p">,</span>  <span class="mf">66.75043488</span><span class="p">,</span>  <span class="mf">69.19681549</span><span class="p">,</span>  <span class="mf">50.62128448</span><span class="p">,</span>
-        <span class="mf">64.8801651</span> <span class="p">,</span>  <span class="mf">57.72655106</span><span class="p">,</span>  <span class="mf">49.75050354</span><span class="p">,</span>  <span class="mf">65.05570221</span><span class="p">,</span>
-        <span class="mf">57.38450241</span><span class="p">,</span>  <span class="mf">69.51113129</span><span class="p">,</span>  <span class="mf">64.24596405</span><span class="p">,</span>  <span class="mf">67.54656982</span><span class="p">,</span>
-        <span class="o">...</span><span class="p">,</span>
-        <span class="mf">61.18143463</span><span class="p">,</span>  <span class="mf">66.61872864</span><span class="p">,</span>  <span class="mf">55.39360428</span><span class="p">,</span>  <span class="mf">67.51051331</span><span class="p">,</span>
-        <span class="mf">43.34006882</span><span class="p">,</span>  <span class="mf">57.1137352</span> <span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="n">normals</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">]</span>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">avector</span><span class="p">[</span><span class="n">avector</span><span class="p">[:,</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">]</span>
-<span class="n">VTKArray</span><span class="p">([[</span> <span class="mf">25.69367027</span><span class="p">,</span>   <span class="mf">9.01253319</span><span class="p">,</span>   <span class="mf">7.51076698</span><span class="p">],</span>
-       <span class="p">[</span> <span class="mf">13.1944809</span> <span class="p">,</span>   <span class="mf">9.01253128</span><span class="p">,</span>   <span class="mf">7.51076508</span><span class="p">],</span>
-       <span class="p">[</span> <span class="mf">25.98717642</span><span class="p">,</span>  <span class="o">-</span><span class="mf">4.49800825</span><span class="p">,</span>   <span class="mf">7.80427408</span><span class="p">],</span>
-       <span class="o">...</span><span class="p">,</span>
-       <span class="p">[</span> <span class="mf">12.9009738</span> <span class="p">,</span> <span class="o">-</span><span class="mf">16.86548471</span><span class="p">,</span>  <span class="o">-</span><span class="mf">7.80427504</span><span class="p">],</span>
-       <span class="p">[</span> <span class="mf">25.69366837</span><span class="p">,</span>  <span class="o">-</span><span class="mf">3.48665428</span><span class="p">,</span>  <span class="o">-</span><span class="mf">7.51076889</span><span class="p">],</span>
-       <span class="p">[</span> <span class="mf">13.19447994</span><span class="p">,</span>  <span class="o">-</span><span class="mf">3.48665524</span><span class="p">,</span>  <span class="o">-</span><span class="mf">7.51076794</span><span class="p">]])</span></code></pre></div>
+<span class="k">print</span> <span class="n">normals</span></code></pre></div>
 
-<h2>Algorithms</h2>
+<p>On my machine, this prints out the following.</p>
 
-<p>One can do a lot simply using the array API. However, things get much more interesting when we start using the <code>numpy_interface.algorithms</code> module. I introduced it briefly in the previous examples. I will expand on it a bit more here. For a full list of algorithms, use <code>help(algs)</code>. Here are some self-explanatory examples:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKNoneArray</span> <span class="nb">object</span> <span class="n">at</span> <span class="mh">0x119176490</span><span class="o">&gt;</span>
+<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKNoneArray</span> <span class="nb">object</span> <span class="n">at</span> <span class="mh">0x11b128490</span><span class="o">&gt;</span>
+<span class="p">[[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
+ <span class="p">[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
+ <span class="p">[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
+ <span class="p">[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
+ <span class="o">...</span>
+ <span class="p">[</span> <span class="mf">0.</span>  <span class="mf">0.</span>  <span class="mf">1.</span><span class="p">]</span>
+ <span class="p">[</span> <span class="mf">0.</span>  <span class="mf">0.</span>  <span class="mf">1.</span><span class="p">]]</span></code></pre></div>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">([</span><span class="o">-</span><span class="mf">0.87873501</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.86987603</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.52497</span>   <span class="p">,</span> <span class="o">...</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.99943125</span><span class="p">,</span>
-       <span class="o">-</span><span class="mf">0.59898132</span><span class="p">,</span>  <span class="mf">0.53547275</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+<p>Note how the normals is a <code>VTKNoneArray</code> on 2 of the ranks. This is because <code>vtkCubeSource</code> is not parallel-aware and will produce output only on the first rank. On all other ranks, it will produce empty output. Consider the use case where we want to do something like this with normals.</p>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">(</span><span class="mf">37.35310363769531</span><span class="p">)</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">normals</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span></code></pre></div>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">avector</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">(</span><span class="mf">34.781060218811035</span><span class="p">)</span>
+<p>One would expect that this would throw an exception on ranks where the normals array does not exist. In fact, the first implementation of the <code>numpy_interface.dataset_adapter</code> returned a <code>None</code> object and threw an exception in such cases as expected. However, this design had a significant flaw. Because of the exception, ranks that did not have the array could not participate in the calculation of global values, which are calculated by performing <code>MPI_Allreduce</code>. This function will hang unless all ranks participate in the reduction. We addressed this flaw by developing the <code>VTKNoneArray</code> class. This class supports all operators that regular arrays support and always returns <code>VTKNoneArray</code>. Furthermore, parallel algorithms function properly when asked to work on a <code>VTKNoneArray</code>.</p>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">avector</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">34.78106022</span><span class="p">,</span>  <span class="mf">29.01940918</span><span class="p">,</span>  <span class="mf">18.34743023</span><span class="p">])</span>
+<p>We have covered a lot ground so far. In the next blog, which will be the last one in this series, I will talk about composite datasets and composite arrays.</p>
 
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">avector</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">25.69367027</span><span class="p">,</span>   <span class="mf">9.30603981</span><span class="p">,</span>   <span class="mf">9.88350773</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>  <span class="o">-</span><span class="mf">4.35762835</span><span class="p">,</span>
-        <span class="o">-</span><span class="mf">3.78016186</span><span class="p">,</span>  <span class="mf">13.19447994</span><span class="p">])</span></code></pre></div>
-
-<p>If you haven&#39;t used the axis argument before, it is pretty easy. When you don&#39;t pass an axis value, the function is applied to all values of an array without any consideration for dimensionality. When axis=0, the function will be applied to each component of the array independently. When axis=1, the function will be applied to each tuple independently. Experiment if this is not clear to you. Functions that work this way include sum, min, max, std and var.</p>
-
-<p>Another interesting and useful function is <code>where</code> which returns the indices of an array where a particular condition occurs.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">rtdata</span> <span class="o">&lt;</span> <span class="mi">40</span><span class="p">)</span>
-<span class="p">(</span><span class="n">array</span><span class="p">([</span> <span class="mi">420</span><span class="p">,</span> <span class="mi">9240</span><span class="p">]),)</span></code></pre></div>
-
-<p>For vectors, this will also return the component index if an axis is not defined.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">avector</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">29.7</span><span class="p">)</span>
-<span class="p">(</span><span class="n">VTKArray</span><span class="p">([</span><span class="mi">4357</span><span class="p">,</span> <span class="mi">4797</span><span class="p">,</span> <span class="mi">4798</span><span class="p">,</span> <span class="mi">4799</span><span class="p">,</span> <span class="mi">5239</span><span class="p">]),</span> <span class="n">VTKArray</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]))</span></code></pre></div>
-
-<p>So far, all of the functions that we discussed are directly provided by numpy. Many of the numpy ufuncs are included in the <code>algorithms</code> module. They all work with single arrays and composite data arrays (more on this on another blog). <code>Algorithms</code> also provides some functions that behave somewhat differently than their numpy counterparts. These include <code>cross</code>, <code>dot</code>, <code>inverse</code>, <code>determinant</code>,  <code>eigenvalue</code>, <code>eigenvector</code> etc. All of these functions are applied to each tuple rather than to a whole array/matrix. For example:</p>
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">amatrix</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">avector</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">determinant</span><span class="p">(</span><span class="n">amatrix</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">([</span><span class="o">-</span><span class="mf">1221.2732624</span> <span class="p">,</span>  <span class="o">-</span><span class="mf">648.48272183</span><span class="p">,</span>    <span class="o">-</span><span class="mf">3.55133937</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>    <span class="mf">28.2577152</span> <span class="p">,</span>
-        <span class="o">-</span><span class="mf">629.28507693</span><span class="p">,</span> <span class="o">-</span><span class="mf">1205.81370163</span><span class="p">])</span>
-</code></pre></div>
-<p>Note that everything above only leveraged per-tuple information and did not rely on the mesh. One of VTK&#39;s biggest strengths is that its data model supports a large variety of meshes and its algorithms work generically on all of these mesh types. The <code>algorithms</code> module exposes some of this functionality. Other functions can be easily implemented by leveraging existing VTK filters. I used <code>gradient</code> before to generate a vector and a matrix. Here it is again</p>
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">avector</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">amatrix</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">avector</span><span class="p">)</span>
-</code></pre></div>
-<p>Functions like this require access to the dataset containing the array and the associated mesh. This is one of the reasons why we use a subclass of <code>ndarray</code> in <code>dataset_adapter</code>:</p>
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata</span><span class="o">.</span><span class="n">DataSet</span>
-<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">DataSet</span> <span class="n">at</span> <span class="mh">0x11b61e9d0</span><span class="o">&gt;</span>
-</code></pre></div>
-<p>Each array points to the dataset containing it. Functions such as gradient use the mesh and the array together.Numpy provides a gradient function too, you say. What is so exciting about yours? Well, this:</p>
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">rtdata2</span><span class="p">)</span>
-<span class="n">VTKArray</span><span class="p">([[</span> <span class="mf">25.46767712</span><span class="p">,</span>   <span class="mf">8.78654003</span><span class="p">,</span>   <span class="mf">7.28477383</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">6.02292252</span><span class="p">,</span>   <span class="mf">8.99845123</span><span class="p">,</span>   <span class="mf">7.49668884</span><span class="p">],</span>
-       <span class="p">[</span>  <span class="mf">5.23528767</span><span class="p">,</span>   <span class="mf">9.80230141</span><span class="p">,</span>   <span class="mf">8.3005352</span> <span class="p">],</span>
-       <span class="o">...</span><span class="p">,</span>
-       <span class="p">[</span> <span class="o">-</span><span class="mf">6.43249083</span><span class="p">,</span>  <span class="o">-</span><span class="mf">4.27642155</span><span class="p">,</span>  <span class="o">-</span><span class="mf">8.30053616</span><span class="p">],</span>
-       <span class="p">[</span> <span class="o">-</span><span class="mf">5.19838905</span><span class="p">,</span>  <span class="o">-</span><span class="mf">3.47257614</span><span class="p">,</span>  <span class="o">-</span><span class="mf">7.49668884</span><span class="p">],</span>
-       <span class="p">[</span> <span class="mf">13.42047501</span><span class="p">,</span>  <span class="o">-</span><span class="mf">3.26066017</span><span class="p">,</span>  <span class="o">-</span><span class="mf">7.28477287</span><span class="p">]])</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">rtdata2</span><span class="o">.</span><span class="n">DataSet</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span>
-<span class="s">&#39;vtkUnstructuredGrid&#39;</span>
-</code></pre></div>
-<p><code>Gradient</code> and algorithms that require access to a mesh work whether that mesh is a uniform grid or a curvilinear grid or an unstructured grid thanks to VTK&#39;s data model. Take a look at various functions in the <code>algorithms</code> module to see all the cool things that can be accomplished using it. I will write future blogs that demonstrate how specific problems can be solved using these modules.</p>
-
-<p>All of this work with composite datasets and in parallel using MPI. I will cover some specific details about these in future blogs.</p>
-
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/714">Kitware blog</a>.
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/720">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 

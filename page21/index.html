@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Berk Geveci &middot; All About VTK / ParaView
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+      <h3 class="masthead-title">
+      <a href="/" title="Home">Berk Geveci</a>
+
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/about">About</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/archive">Archive</a></small>
+      
+        &nbsp;&nbsp;&nbsp;
+        <small><a href="/atom.xml">Feed</a></small>
+      
+      </h3>      
+      </div>
+
+      <div class="posts">
+  
+  <div class="post">
+    <h1 class="post-title">
+      <a href="/2014/07/28/vtk-python/">
+        Improved VTK - numpy integration
+      </a>
+    </h1>
+
+    <span class="post-date">28 Jul 2014</span>
+
+    <p>Recently, we have introduced a new Python module called <code>numpy_interface</code> to VTK. The main objective of this module is to make it easier to interface VTK and numpy. This article is the first in a series that introduces this module. Let&#39;s start with a teaser.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+
+<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span> 
+
+<span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+
+<span class="n">e</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkElevationFilter</span><span class="p">()</span>
+<span class="n">e</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">e</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+
+<span class="n">sphere</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+
+<span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+<span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span></code></pre></div>
+
+<p>This example prints out the following (assuming that you have a relatively new checkout of VTK master from git).</p>
+<div class="highlight"><pre><code class="language-text" data-lang="text">[&#39;Normals&#39;, &#39;Elevation&#39;]
+[ 0.5         0.          0.45048442  0.3117449   0.11126047  0.          0.
+  0.          0.45048442  0.3117449   0.11126047  0.          0.          0.
+  0.45048442  0.3117449   0.11126047  0.          0.          0.
+  0.45048442  0.3117449   0.11126047  0.          0.          0.
+  0.45048442  0.3117449   0.11126047  0.          0.          0.
+  0.45048442  0.3117449   0.11126047  0.          0.          0.
+  0.45048442  0.3117449   0.11126047  0.          0.          0.
+  0.45048442  0.3117449   0.11126047  0.          0.          0.        ]
+</code></pre></div>
+<p>The last 3 lines are what is new. Note how we used a different API to access the PointData and the Elevation array on the last 2 lines. Also note that when we printed the Elevation array, the output didn&#39;t look like one from a vtkDataArray. In fact:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">elevation</span> <span class="o">=</span> <span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+<span class="k">print</span> <span class="nb">type</span><span class="p">(</span><span class="n">elevation</span><span class="p">)</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="k">print</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">elevation</span><span class="p">,</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span></code></pre></div>
+
+<p>prints the following.</p>
+<div class="highlight"><pre><code class="language-text" data-lang="text">&lt;class &#39;vtk.numpy_interface.dataset_adapter.VTKArray&#39;&gt;
+True
+</code></pre></div>
+<p>So a VTK array is a numpy array? What kind of trickery is this you say? What kind of magic makes the following possible?</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">elevation</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&#39;e plus one&#39;</span><span class="p">)</span>
+<span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">elevation</span><span class="p">)</span>
+<span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">sphere</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;e plus one&#39;</span><span class="p">])</span>
+<span class="k">print</span> <span class="n">sphere</span><span class="o">.</span><span class="n">VTKObject</span></code></pre></div>
+
+<p>Output:</p>
+<div class="highlight"><pre><code class="language-text" data-lang="text">0.5
+1.5
+vtkPolyData (0x7fa20d011c60)
+  ...
+  Point Data:
+    ...
+    Number Of Arrays: 3
+    Array 0 name = Normals
+    Array 1 name = Elevation
+    Array 2 name = e plus one
+</code></pre></div>
+<p>It is all in the <code>numpy_interface</code> module. It ties VTK datasets and data arrays to numpy arrays and introduces a number of algorithms that can work on these objects. There is quite a bit to this module and I will introduce it piece by piece in upcoming blogs.</p>
+
+<p>Let&#39;s wrap up this blog with one final teaser:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span> 
+
+<span class="n">t</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSetTriangleFilter</span><span class="p">()</span>
+<span class="n">t</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">t</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span> 
+
+<span class="n">ugrid</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">gradient</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">])</span></code></pre></div>
+
+<p>Output:</p>
+<div class="highlight"><pre><code class="language-text" data-lang="text">[[ 25.46767712   8.78654003   7.28477383]
+ [  6.02292252   8.99845123   7.49668884]
+ [  5.23528767   9.80230141   8.3005352 ]
+ ...,
+ [ -6.43249083  -4.27642155  -8.30053616]
+ [ -5.19838905  -3.47257614  -7.49668884]
+ [ 13.42047501  -3.26066017  -7.28477287]]
+</code></pre></div>
+<p>Please note that this example is not very easily replicated by using pure numpy. The <code>gradient</code> function returns the gradient of an unstructured grid - a concept that does not exist in numpy. However, the ease-of-use of numpy is there.</p>
+
+<p>Stay tuned for more.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/709">Kitware blog</a>.
+Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
+<a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
+
+  </div>
+  
+</div>
+
+<div class="pagination">
+  
+    <span class="pagination-item older">Older</span>
+  
+  
+    
+      <a class="pagination-item newer" href="/page20">Newer</a>
+    
+  
+</div>
+
+
+      <div class="footer">
+        <p>
+          <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

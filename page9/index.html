@@ -51,284 +51,59 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/09/13/h5py-reader/">
-        Developing HDF5 readers using vtkPythonAlgorithm
+      <a href="/2014/10/04/issue-hackathon/">
+        VTK issue hackathon
       </a>
     </h1>
 
-    <span class="post-date">13 Sep 2014</span>
+    <span class="post-date">04 Oct 2014</span>
 
-    <p>In my <a href="/2014/09/05/vtk-python-algorithm/">last article</a>, I introduced the new
-<code>vtkPythonAlgorithm</code> and showed how it can be used to developed fully functional VTK algorithms in
-Python. In this one, we are going to put this knowledge to use and develop a set of
-<a href="http://www.hdfgroup.org/HDF5/">HDF5</a> readers using the wonderful <a href="http://www.h5py.org/">h5py</a>
-package.</p>
+    <p>On October 2nd 2014, we held a hackathon to reduce the number of issues in the VTK bug
+tracker in anticipation of VTK&#39;s migration to a new bug tracker (as part of migrating to
+Gitlab probably). We also hope to come to a place where we triage bugs early and keep
+the issue tracker relatively clean.</p>
 
-<p>First, let&#39;s use h5py to write a series of simple HDF5 files.</p>
+<p><img src="/assets/hackathon.jpg" alt="VTK issue hackathon"></p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span><span class="o">,</span> <span class="nn">h5py</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-
-<span class="k">def</span> <span class="nf">write_file</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">xfreq</span><span class="p">):</span>
-    <span class="n">wdata</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-    <span class="n">array</span> <span class="o">=</span> <span class="n">wdata</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span>
-    <span class="c"># Note that we flip the dimensions here because</span>
-    <span class="c"># VTK&#39;s order is Fortran whereas h5py writes in</span>
-    <span class="c"># C order. We don&#39;t want to do deep copies so we write</span>
-    <span class="c"># with dimensions flipped and pretend the array is</span>
-    <span class="c"># C order.</span>
-    <span class="n">array</span> <span class="o">=</span> <span class="n">array</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">wdata</span><span class="o">.</span><span class="n">GetDimensions</span><span class="p">()[::</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-    <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="s">&#39;data</span><span class="si">%d</span><span class="s">.h5&#39;</span> <span class="o">%</span> <span class="n">xfreq</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
-    <span class="n">f</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;RTData&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">array</span><span class="p">)</span>
-
-
-<span class="n">rt</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-
-<span class="k">for</span> <span class="n">xfreq</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">60</span><span class="p">,</span> <span class="mi">80</span><span class="p">):</span>
-    <span class="n">rt</span><span class="o">.</span><span class="n">SetXFreq</span><span class="p">(</span><span class="n">xfreq</span><span class="p">)</span>
-    <span class="n">rt</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">write_file</span><span class="p">(</span><span class="n">rt</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="n">xfreq</span><span class="p">)</span></code></pre></div>
-
-<p>Here I used the <code>vtkRTAnalyticSource</code> which generates synthetic data for testing purposes. I varied
-its X Frequency parameter in order to create a file series. The output will be a set of files
-ranging from <code>data60.h5</code> to <code>data79.h5</code>. Each file will contain one 3D dataset.</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">&gt;&gt; h5ls data60.h5
-RTData                   Dataset <span class="o">{</span>21, 21, 21<span class="o">}</span></code></pre></div>
-
-<p>Here is my first pass at a <code>vtkPythonAlgorithm</code> based reader.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span><span class="o">,</span> <span class="nn">h5py</span>
-<span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-
-<span class="k">class</span> <span class="nc">HDF5Source</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkImageData&#39;</span><span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
-        <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">][:]</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">))</span>
-        <span class="c"># Note that we flip the dimensions here because</span>
-        <span class="c"># VTK&#39;s order is Fortran whereas h5py writes in</span>
-        <span class="c"># C order.</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">SetDimensions</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="s">&#39;RTData&#39;</span><span class="p">)</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&#39;RTData&#39;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">SetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fname</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">fname</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="n">fname</span>
-
-    <span class="k">def</span> <span class="nf">GetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span></code></pre></div>
-
-<p>Note that this is fairly basic. It performs no error checking and hard-codes the <code>RTData</code>
-dataset in <code>RequestData</code>. We can test the reader with a script like this:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">alg</span> <span class="o">=</span> <span class="n">HDF5Source</span><span class="p">()</span>
-<span class="n">alg</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;data60.h5&quot;</span><span class="p">)</span>
-
-<span class="n">cf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
-<span class="n">cf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">alg</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">cf</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">200</span><span class="p">)</span>
-
-<span class="n">m</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-<span class="n">m</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">cf</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-
-<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-<span class="n">a</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
-
-<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-
-<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
-
-<span class="k">for</span> <span class="n">xfreq</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">60</span><span class="p">,</span> <span class="mi">80</span><span class="p">):</span>
-    <span class="n">alg</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&#39;data</span><span class="si">%d</span><span class="s">.h5&#39;</span> <span class="o">%</span> <span class="n">xfreq</span><span class="p">)</span>
-    <span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
-    <span class="kn">import</span> <span class="nn">time</span>
-    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span></code></pre></div>
-
-<p>Guess what. It doesn&#39;t work :-) This is because the producer of any structured dataset
-(<code>vtkImageData</code>, <code>vtkRectilinearGrid</code> and <code>vtkStructuredGrid</code>) has to report the <em>whole extent</em> of
-the data in the index space. So we need to add the method to do that:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
-        <span class="c"># Note that we flip the shape because VTK is Fortran order</span>
-        <span class="c"># whereas h5py reads in C order. When writing we pretend that the</span>
-        <span class="c"># data was C order so we have to flip the extents/dimensions.</span>
-        <span class="n">dims</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">WHOLE_EXTENT</span><span class="p">(),</span>
-            <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dims</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dims</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="mi">6</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
-
-<p>With this addition, we get the following result (click on the picture to see the
-animation).</p>
-
-<figure>
-<img src="/assets/image60.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/rtdata-anim.gif"'/>
-</figure>
-
-<p>As I discussed previously, <code>RequestInformation</code> provides meta-data downstream. This meta-data is
-most of the time lightweight. In this example, we used  <code>f[&#39;RTData&#39;].shape</code> to read extent meta-data
-from the HDF5 file. This does not read any heavyweight data. Later on, we will see other examples of
-meta-data that is provided during <code>RequestInformation</code>.</p>
-
-<p>Let&#39;s make our reader a bit more sophisticated. Notice that the <code>RequestData</code> we implemented above
-always reads the whole dataset. However, VTK&#39;s pipeline is designed such that algorithms can ask a
-data producer for a subset of its whole extent. This is done using the <code>UPDATE_EXTENT</code> key. Let&#39;s
-change our <code>RequestData</code> to handle UPDATE_EXTENT:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">ue</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_EXTENT</span><span class="p">())</span>
-        <span class="c"># Note that we flip the update extents because VTK is Fortran order</span>
-        <span class="c"># whereas h5py reads in C order. When writing we pretend that the</span>
-        <span class="c"># data was C order so we have to flip the extents/dimensions.</span>
-        <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">][</span><span class="n">ue</span><span class="p">[</span><span class="mi">4</span><span class="p">]:</span><span class="n">ue</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">ue</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span><span class="n">ue</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">ue</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">ue</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
-        <span class="n">output</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">))</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">SetExtent</span><span class="p">(</span><span class="n">ue</span><span class="p">)</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="s">&#39;RTData&#39;</span><span class="p">)</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&#39;RTData&#39;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
-
-<p>Here the key is the following:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">][</span><span class="n">ue</span><span class="p">[</span><span class="mi">4</span><span class="p">]:</span><span class="n">ue</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">ue</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span><span class="n">ue</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">ue</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">ue</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span></code></pre></div>
-
-<p>Thanks to h5py&#39;s support for reading subsets (called hyperslabs in HDF5 speak), we had to do very
-little to support the <code>UPDATE_EXTENT</code> request. Let&#39;s try it out.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">alg</span> <span class="o">=</span> <span class="n">HDF5Source</span><span class="p">()</span>
-<span class="n">alg</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;data60.h5&quot;</span><span class="p">)</span>
-
-<span class="n">alg</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
-
-<span class="n">alg</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">((</span><span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
-<span class="n">alg</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-
-<span class="k">print</span> <span class="n">alg</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">GetExtent</span><span class="p">()</span></code></pre></div>
-
-<p>This will print <code>(5, 10, 5, 10, 0, 10)</code> as expected. A few notes:</p>
+<p>Here is the attendance list as far as I can tell:</p>
 
 <ul>
-<li><code>UpdateInformation()</code> tells the algorithm (and the pipeline upstream of the algorithm) to produce
-meta-data. In our example, this will lead to a call to <code>HDF5Source.RequestInformation()</code>.</li>
-<li>It is essential to call <code>UpdateInformation()</code> before setting any requests. Otherwise, any user
-set requests will be overwritten.</li>
-<li><code>SetUpdateExtent()</code> tells the algorithms to produce a given extent; in this case based on index
-space. There are other signatures of <code>SetUpdateExtent()</code> we will discover later.</li>
-<li>This works only if the requests are set on the algorithm that <code>Update()</code> will be called on.
-If you were to set any requests on any algorithms upstream of the pipeline, they would be
-overwritten by downstream filters.</li>
+<li>Ken Martin</li>
+<li>Bill Lorensen</li>
+<li>Will Schroeder</li>
+<li>Bill Hoffman</li>
+<li>Berk Geveci</li>
+<li>Shawn Waldon</li>
+<li>Chuck Atkins</li>
+<li>Marcus Hanwell</li>
+<li>Utkarsh Ayachit</li>
+<li>Andy Bauer</li>
+<li>Ben Boeckel</li>
+<li>Dave DeMarle</li>
+<li>Cory Quammen</li>
+<li>David Gobbi</li>
+<li>David Cole</li>
+<li>Sean McBride</li>
 </ul>
 
-<p>As a final exercise in this article, let&#39;s write a Python filter that asks the <code>HDF5Source</code> to
-produce only a sub-extent so that we can contour and render a subset (à la <code>vtkExtractVOI</code>). Here it
-is.</p>
+<p>It was awesome working alongside these brilliant folks to improve VTK. Of
+course, we had to occasionally poke fun at the original developers (all 3 were
+there!) and blame them for some of the issues; all in good fun.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">RequestSubset</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkImageData&#39;</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkImageData&#39;</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span> <span class="o">=</span> <span class="bp">None</span>
+<p>Before the hackathon, we had 189 open bugs. After the hackathon, we have 118 bugs.
+But that&#39;s not all, there is still a lot of code in Gerrit review. So if we include
+those, we are down to 91 bugs! So we closed a whopping 98 bugs in 1 day. To be fair,
+we closed many bugs because they were already fixed or contained feature requests that
+we didn&#39;t want to implement but we also fixed a large number of real issues. To see the 
+list of bugs that we closed, check out <a href="http://tinyurl.com/lrznr6w">this link</a> and look
+at the bugs that were closed around 10/2 2014. This list will grow as the changes
+currently in Gerrit review makes into master. The icing on the cake is that we have
+very little dashboard issues that resulted from the hackathon. Those should be resolved
+very soon.</p>
 
-    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">WHOLE_EXTENT</span><span class="p">(),</span> \
-            <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
-            <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-            <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_EXTENT</span><span class="p">(),</span> \
-                <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">inp</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
-        <span class="n">opt</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">)</span>
-        <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">SetUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ue</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">ue</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span> <span class="o">=</span> <span class="n">ue</span>
-
-    <span class="k">def</span> <span class="nf">GetUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__UpdateExtent</span></code></pre></div>
-
-<p>If you look at <code>RequestData()</code> alone, this is a pass-through filter. It shallow copies its input
-to its output. The trick is in <code>RequestUpdateExtent()</code> where the filter asks for the user defined
-extent from its input. When this is combined with the reader&#39;s ability of reading requested
-subsets, this filter acts as a subset filter producing the user requested sub-extent.
-<code>RequestInformation()</code> is written to reflect this : it tells downstream that the filter will
-produce the extent requested by the user.</p>
-
-<p>Let&#39;s put these two algorithms in a pipeline:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">alg</span> <span class="o">=</span> <span class="n">HDF5Source</span><span class="p">()</span>
-<span class="n">alg</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;data60.h5&quot;</span><span class="p">)</span>
-
-<span class="n">rs</span> <span class="o">=</span> <span class="n">RequestSubset</span><span class="p">()</span>
-<span class="n">rs</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">alg</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">rs</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">((</span><span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">))</span>
-
-<span class="n">cf</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
-<span class="n">cf</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">rs</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">cf</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">200</span><span class="p">)</span>
-
-<span class="n">m</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-<span class="n">m</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">cf</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-
-<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-<span class="n">a</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
-
-<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-
-<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">300</span><span class="p">,</span> <span class="mi">300</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
-
-<span class="k">for</span> <span class="n">xfreq</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">60</span><span class="p">,</span> <span class="mi">80</span><span class="p">):</span>
-    <span class="n">alg</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&#39;data</span><span class="si">%d</span><span class="s">.h5&#39;</span> <span class="o">%</span> <span class="n">xfreq</span><span class="p">)</span>
-
-    <span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
-
-<p>This will produce the following (click on the picture to see the animation).</p>
-
-<figure>
-<img src="/assets/image60-2.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/rtdata-anim-2.gif"'/>
-</figure>
-
-<p>We now have a fairly complex reader in our hands. With some digging through h5py&#39;s documentation
-and a bit of numpy knowledge, you can put together readers that do a lot more very easily. In
-upcoming blogs, I will build on this foundation to highlight other features of VTK&#39;s pipeline.</p>
-
-<p>If you got a little lost in the details of the pipeline passes, don&#39;t worry. In my next blog,
-I will discuss in a bit more detail how the various pipeline passes work and what they do.</p>
-
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/739">Kitware blog</a>.
-Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
-<a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
+<p>After the hackathon, some of us went to <a href="http://saltyspub.com/">Salty&#39;s</a> for some
+grub and beers. Overall very successful and fun hackathon. I am already looking forward
+to the next one.</p>
 
   </div>
   

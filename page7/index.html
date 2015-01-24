@@ -51,59 +51,177 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/10/04/issue-hackathon/">
-        VTK issue hackathon
+      <a href="/2014/10/26/pipeline-3/">
+        A VTK pipeline primer (part 3)
       </a>
     </h1>
 
-    <span class="post-date">04 Oct 2014</span>
+    <span class="post-date">26 Oct 2014</span>
 
-    <p>On October 2nd 2014, we held a hackathon to reduce the number of issues in the VTK bug
-tracker in anticipation of VTK&#39;s migration to a new bug tracker (as part of migrating to
-Gitlab probably). We also hope to come to a place where we triage bugs early and keep
-the issue tracker relatively clean.</p>
+    <p>In previous blogs (<a href="/2014/09/18/pipeline/">1</a>,
+<a href="/2014/10/05/pipeline-2/">2</a>), I started discussing how the VTK
+pipeline functions. We covered the basics and how <code>RequestInformation</code> works.
+In this article, we will discover how <code>RequestUpdateExtent</code> and <code>RequestData</code>
+work. Once you have a good understanding of these 3 passes, you can develop
+all kinds of algorithms, ranging from very basic to sophisticated.</p>
 
-<p><img src="/assets/hackathon.jpg" alt="VTK issue hackathon"></p>
+<h2>RequestUpdateExtent</h2>
 
-<p>Here is the attendance list as far as I can tell:</p>
+<p>This pass is where algorithms can make requests for the upstream pipeline
+to fulfill. Its name originates from the first use case for this pass:
+requesting a subset of logical extent from an image source (aka update
+extent). In the current VTK, this pass is used for requesting many other
+things including time steps, partitions (pieces), ghost levels etc. Let&#39;s
+dig into an example. First let&#39;s create a request key with the following.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">requestKey</span> <span class="o">=</span> <span class="n">keys</span><span class="o">.</span><span class="n">MakeKey</span><span class="p">(</span><span class="n">keys</span><span class="o">.</span><span class="n">IntegerRequestKey</span><span class="p">,</span> <span class="s">&quot;a request&quot;</span><span class="p">,</span> <span class="s">&quot;my module&quot;</span><span class="p">)</span></code></pre></div>
+
+<p>Then let&#39;s make a request using this key (at the end of the file):</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">f</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
+<span class="n">outInfo</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">GetOutputInformation</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">outInfo</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">requestKey</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">f</span><span class="o">.</span><span class="n">PropagateUpdateExtent</span><span class="p">()</span></code></pre></div>
+
+<p>Let&#39;s also change the filter and the source to print out the keys in the
+information objects during <code>RequestUpdateExtent</code>:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">MySource</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MySource RequestUpdateExtent:&quot;</span>
+        <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+<span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MyFilter RequestUpdateExtent:&quot;</span>
+        <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Now when we run our example, here is the output:</p>
+
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">MyFilter RequestUpdateExtent:
+vtkInformation <span class="o">(</span>0x7fae09e73650<span class="o">)</span>
+  ...
+  a request: 0
+
+MySource RequestUpdateExtent:
+vtkInformation <span class="o">(</span>0x7fae09e732d0<span class="o">)</span>
+  ...
+  a request: 0</code></pre></div>
+
+<p>So far, we let the pipeline simply copy upstream the <code>a request</code> key. However,
+it is sometimes necessary for a filter to modify a request value during the
+<code>RequestUpdateExtent</code> pass. For example, a filter may need a layer of ghost
+cells to produce piece-independent results and may add a ghost level to the
+request. Let&#39;s change <code>MyFilter</code>&#39;s <code>RequestUpdateExtent</code> to increment the value
+of <code>a request</code>.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">print</span> <span class="s">&quot;MyFilter RequestUpdateExtent:&quot;</span>
+        <span class="k">print</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">areq</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">requestKey</span><span class="p">)</span>
+        <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">requestKey</span><span class="p">,</span> <span class="n">areq</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Now the output will look as follows:</p>
+
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">MyFilter RequestUpdateExtent:
+vtkInformation <span class="o">(</span>0x7fae09e73650<span class="o">)</span>
+  ...
+  a request: 0
+
+MySource RequestUpdateExtent:
+vtkInformation <span class="o">(</span>0x7fae09e732d0<span class="o">)</span>
+  ...
+  a request: 1</code></pre></div>
+
+<p>Here is a graphical representation of what is going on.</p>
+
+<p><img src="/assets/meta-data2.png" alt="meta-data2"></p>
+
+<p>Simple huh? A few things to note:</p>
 
 <ul>
-<li>Ken Martin</li>
-<li>Bill Lorensen</li>
-<li>Will Schroeder</li>
-<li>Bill Hoffman</li>
-<li>Berk Geveci</li>
-<li>Shawn Waldon</li>
-<li>Chuck Atkins</li>
-<li>Marcus Hanwell</li>
-<li>Utkarsh Ayachit</li>
-<li>Andy Bauer</li>
-<li>Ben Boeckel</li>
-<li>Dave DeMarle</li>
-<li>Cory Quammen</li>
-<li>David Gobbi</li>
-<li>David Cole</li>
-<li>Sean McBride</li>
+<li><p>Certain keys are copied upstream by the pipeline automatically during
+<code>RequestUpdateExtent</code>. These include all keys of type <code>vtkInformationIntegerRequestKey</code>,
+<code>UPDATE_EXTENT</code>, <code>UPDATE_NUMBER_OF_GHOST_LEVELS</code>, <code>UPDATE_PIECE_NUMBER</code> etc.</p></li>
+<li><p>Any automatic copying happens before the algorithm&#39;s <code>RequestUpdateExtent</code>
+is called so that it can overwrite anything done by the pipeline.</p></li>
 </ul>
 
-<p>It was awesome working alongside these brilliant folks to improve VTK. Of
-course, we had to occasionally poke fun at the original developers (all 3 were
-there!) and blame them for some of the issues; all in good fun.</p>
+<p>We are now done covering all of the meta-data passes. In summary:</p>
 
-<p>Before the hackathon, we had 189 open bugs. After the hackathon, we have 118 bugs.
-But that&#39;s not all, there is still a lot of code in Gerrit review. So if we include
-those, we are down to 91 bugs! So we closed a whopping 98 bugs in 1 day. To be fair,
-we closed many bugs because they were already fixed or contained feature requests that
-we didn&#39;t want to implement but we also fixed a large number of real issues. To see the 
-list of bugs that we closed, check out <a href="http://tinyurl.com/lrznr6w">this link</a> and look
-at the bugs that were closed around 10/2 2014. This list will grow as the changes
-currently in Gerrit review makes into master. The icing on the cake is that we have
-very little dashboard issues that resulted from the hackathon. Those should be resolved
-very soon.</p>
+<ul>
+<li><p>In <code>RequestInformation</code>, the source produces meta-data, the pipeline copies these
+values downstream by default and the filters modify the meta-data as it
+propagates downstream.</p></li>
+<li><p>In <code>RequestUpdateExtent</code>, the sink (or the user at the
+end of the pipeline) makes requests and as these values propagate upstream,
+filters modify them to fit their needs.</p></li>
+</ul>
 
-<p>After the hackathon, some of us went to <a href="http://saltyspub.com/">Salty&#39;s</a> for some
-grub and beers. Overall very successful and fun hackathon. I am already looking forward
-to the next one.</p>
+<h2>RequestData</h2>
+
+<p>Hopefully, this section is trivial to most readers. In <code>RequestData</code>, data,
+originally produced by sources, is transformed by filters as it propagates
+downstream. This is very similar to <code>RequestInformation</code>, the main difference
+is that &quot;heavy&quot; data is processed in <code>RequestData</code> as opposed to meta (light)
+data in <code>RequestInformation</code>.</p>
+
+<p>In this pass, algorithms deal with the <code>vtkDataObject.DATA_OBJECT()</code> key, which
+is preset by the pipeline or the algorithm (more on this some other time). Let&#39;s
+modify our example to do some work in <code>RequestData</code>:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>  <span class="k">class</span> <span class="nc">MySource</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="mi">2</span>      <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">3</span>          <span class="k">print</span> <span class="s">&quot;MySource RequestData:&quot;</span>
+<span class="mi">4</span>          <span class="n">outInfo0</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="mi">5</span>          <span class="n">areq</span> <span class="o">=</span> <span class="n">outInfo0</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">requestKey</span><span class="p">)</span>
+<span class="mi">6</span>          <span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+<span class="mi">7</span>          <span class="n">s</span><span class="o">.</span><span class="n">SetRadius</span><span class="p">(</span><span class="n">areq</span><span class="p">)</span>
+<span class="mi">8</span>          <span class="n">s</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">9</span>          <span class="n">output</span> <span class="o">=</span> <span class="n">outInfo0</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_OBJECT</span><span class="p">())</span>
+<span class="mi">10</span>         <span class="n">output</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">11</span>         <span class="k">print</span> <span class="n">output</span>
+<span class="mi">12</span>         <span class="k">return</span> <span class="mi">1</span>
+<span class="mi">13</span> 
+<span class="mi">14</span> <span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="mi">15</span>     <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">16</span>         <span class="k">print</span> <span class="s">&quot;MyFilter RequestData:&quot;</span>
+<span class="mi">17</span>         <span class="n">inInfo0</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="mi">18</span>         <span class="n">outInfo0</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="mi">19</span>         <span class="nb">input</span> <span class="o">=</span> <span class="n">inInfo0</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_OBJECT</span><span class="p">())</span>
+<span class="mi">20</span>         <span class="n">output</span> <span class="o">=</span> <span class="n">outInfo0</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">DATA_OBJECT</span><span class="p">())</span>
+<span class="mi">21</span>         <span class="n">sh</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkShrinkPolyData</span><span class="p">()</span>
+<span class="mi">22</span>         <span class="n">sh</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+<span class="mi">23</span>         <span class="n">sh</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="mi">24</span>         <span class="n">output</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">sh</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="mi">25</span>         <span class="k">print</span> <span class="n">output</span>
+<span class="mi">26</span>         <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>The source and the filter extract their output from the output information
+on lines 9 and 20 respectively. Note that these objects are guaranteed to
+exist and be of type <code>vtkPolyData</code> by the pipeline code. The type is determined
+by the constructor code, which looks like this:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">MyFilter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkPolyData&#39;</span><span class="p">)</span></code></pre></div>
+
+<p>The source uses the request object (line 5) to set the radius of the sphere that
+it produces (line 7). This is a good example of how source and filters can use
+the request objects in their <code>RequestData</code> methods (for example to read a particular
+time step or a spatial subset).</p>
+
+<p>This is it! Hopefully, now you have a good understanding of the inner working of
+the VTK pipeline. We&#39;ll get to put this knowledge to use in upcoming blogs. You
+can find the full example <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/2014-09-16-pipeline/pipeline.py">on this page</a>. I also recommend taking a
+look at <a href="/2014/09/13/h5py-reader/">this blog</a> as it demonstrates how these concepts are used in developing
+an HDF5 reader.</p>
 
   </div>
   
