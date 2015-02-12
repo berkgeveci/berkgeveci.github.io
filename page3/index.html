@@ -51,87 +51,56 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/11/28/compositing/">
-        Spatial Streaming and Compositing
+      <a href="/2015/01/08/h5py-writer-reader/">
+        HDF5 Reader and Writer for Unstructured Grids
       </a>
     </h1>
 
-    <span class="post-date">28 Nov 2014</span>
+    <span class="post-date">08 Jan 2015</span>
 
-    <p>In my <a href="/2014/11/26/streaming-space/">last blog</a>, I talked about
-spatial streaming in VTK. The example I covered demonstrated how a pipeline
-consisting of a structured data source and a contour filter can be streamed
-in smaller chunks to create a collection of polydata objects, which can then
-be rendered. The downside of this approach is that the entirety of the contour
-geometry needs to be stored in memory for rendering. One way of getting
-around this limitation is to stream into a view. Here is an example.</p>
+    <p>We are taking a quick break from the series of blogs on streaming. Instead,
+in preparation for a discussion on block-based streaming, I will discuss how
+you can write multi-block unstructured grid readers and writers in Python using
+the <code>h5py</code> library. Let&#39;s get right down business. Here is the writer code.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+<span class="kn">import</span> <span class="nn">h5py</span>
 <span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
-<span class="kn">import</span> <span class="nn">vtk</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
 
-<span class="k">class</span> <span class="nc">StreamExtents</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">HDF5Writer</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkImageData&#39;</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkUnstructuredGrid&#39;</span><span class="p">,</span>
             <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">=</span> <span class="mi">20</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
-
-        <span class="n">actor</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-        <span class="n">actor</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="p">)</span>
-
-        <span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-        <span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">actor</span><span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
-        <span class="n">ren</span><span class="o">.</span><span class="n">GetActiveCamera</span><span class="p">()</span><span class="o">.</span><span class="n">SetPosition</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
-        <span class="c"># This allows us to stream into the view. OpenGL</span>
-        <span class="c"># takes care of compositing using the z-buffer</span>
-        <span class="c"># when Erase is set to off.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">EraseOff</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">DoubleBufferOff</span><span class="p">()</span>
-
-    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="c"># Ask for the next extent.</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_NUMBER_OF_PIECES</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span><span class="p">)</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_PIECE_NUMBER</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">=</span> <span class="mi">0</span>
 
     <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
         <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
         <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">))</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-        <span class="n">contour</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">Contour</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-        <span class="n">rtdata</span> <span class="o">=</span> <span class="n">contour</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span>
-        <span class="n">color</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
-        <span class="n">color</span><span class="p">[:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span>
-        <span class="n">contour</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">color</span><span class="p">,</span> <span class="s">&quot;color&quot;</span><span class="p">)</span>
-        <span class="n">contour</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">SetActiveScalars</span><span class="p">(</span><span class="s">&quot;color&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">__File</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">contour</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
+        <span class="n">grp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span><span class="p">)</span>
+        <span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">GetBounds</span><span class="p">()</span>
 
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cells&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Cells</span><span class="p">)</span>
+        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_types&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellTypes</span><span class="p">)</span>
+        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_locations&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellLocations</span><span class="p">)</span>
+
+        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;points&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Points</span><span class="p">)</span>
+
+        <span class="n">pdata</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;point_data&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">pdata</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
             <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
                 <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span>
                 <span class="mi">1</span><span class="p">)</span>
@@ -139,288 +108,194 @@ around this limitation is to stream into a view. Here is an example.</p>
             <span class="c"># Stop execution</span>
             <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
                 <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
-            <span class="c"># Reset for next potential execution.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span>
+        <span class="k">return</span> <span class="mi">1</span>
 
-            <span class="n">w2i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkWindowToImageFilter</span><span class="p">()</span>
-            <span class="n">w2i</span><span class="o">.</span><span class="n">SetInput</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="c"># Reset values.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">return</span> <span class="mi">1</span>
 
-            <span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPNGWriter</span><span class="p">()</span>
-            <span class="n">w</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w2i</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-            <span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;composite1.png&quot;</span><span class="p">)</span>
-            <span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_NUMBER_OF_PIECES</span><span class="p">(),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span><span class="p">)</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_PIECE_NUMBER</span><span class="p">(),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">SetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fname</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fname</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="n">fname</span>
+
+    <span class="k">def</span> <span class="nf">GetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span>
+
+    <span class="k">def</span> <span class="nf">SetNumberOfPieces</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">npieces</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">npieces</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span> <span class="o">=</span> <span class="n">npieces</span>
+
+    <span class="k">def</span> <span class="nf">GetNumberOfPieces</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span></code></pre></div>
+
+<p>First of all, this writer uses streaming as described in
+<a href="/2014/11/26/streaming-space/">a previous blog</a>. See also
+<a href="/2014/11/09/streaming-time/">this blog</a> for a more detailed
+description of how streaming works. The meat of the writer is actually just
+a few lines:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">grp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span><span class="p">)</span>
+<span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">GetBounds</span><span class="p">()</span>
+
+<span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cells&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Cells</span><span class="p">)</span>
+<span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_types&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellTypes</span><span class="p">)</span>
+<span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_locations&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellLocations</span><span class="p">)</span>
+
+<span class="n">pdata</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;point_data&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+    <span class="n">pdata</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="n">name</span><span class="p">])</span></code></pre></div>
+
+<p>This block of code writes the 3 data arrays specific to <code>vtkUnstructuredGrid</code>s:
+cells, cell types and cell locations. In short, <code>cells</code> describes the connectivity
+of cells (which points they contain), <code>cell_types</code> describe the type of each cell
+and <code>cell_locations</code> stores the offset of each cell in the <code>cells</code> array for quick
+random access. I will not describe these in further detail here.
+See the VTK Users&#39; Guide for more information. I also added support for point arrays.
+Writing out cell arrays is left to you as an exercise.</p>
+
+<p>Note that, in addition to writing these arrays, I wrote the spatial bounds of
+each block as a meta-data (attribute). Why will become clear in the next blog (hint:
+think demand-driven pipeline and streaming).</p>
+
+<p>We can exercise this writer with the following code:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkClipDataSet</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">157</span><span class="p">)</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">HDF5Writer</span><span class="p">()</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test.h5&quot;</span><span class="p">)</span>
+<span class="n">w</span><span class="o">.</span><span class="n">SetNumberOfPieces</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+
+<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
+
+<p>This produces a file like this:</p>
+
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">&gt;&gt;&gt; h5ls -r test.h5
+/                        Group
+/piece0                  Group
+/piece0/cell_locations   Dataset <span class="o">{</span>4778<span class="o">}</span>
+/piece0/cell_types       Dataset <span class="o">{</span>4778<span class="o">}</span>
+/piece0/cells            Dataset <span class="o">{</span>26534<span class="o">}</span>
+/piece0/point_data       Group
+/piece0/point_data/RTData Dataset <span class="o">{</span>2402<span class="o">}</span>
+/piece0/points           Dataset <span class="o">{</span>2402, 3<span class="o">}</span>
+/piece1                  Group
+/piece1/cell_locations   Dataset <span class="o">{</span>4609<span class="o">}</span>
+/piece1/cell_types       Dataset <span class="o">{</span>4609<span class="o">}</span>
+/piece1/cells            Dataset <span class="o">{</span>25609<span class="o">}</span>
+/piece1/point_data       Group
+/piece1/point_data/RTData Dataset <span class="o">{</span>2284<span class="o">}</span>
+/piece1/points           Dataset <span class="o">{</span>2284, 3<span class="o">}</span>
+/piece2                  Group
+/piece2/cell_locations   Dataset <span class="o">{</span>4173<span class="o">}</span>
+/piece2/cell_types       Dataset <span class="o">{</span>4173<span class="o">}</span>
+/piece2/cells            Dataset <span class="o">{</span>23265<span class="o">}</span>
+/piece2/point_data       Group
+/piece2/point_data/RTData Dataset <span class="o">{</span>2156<span class="o">}</span>
+/piece2/points           Dataset <span class="o">{</span>2156, 3<span class="o">}</span>
+/piece3                  Group
+/piece3/cell_locations   Dataset <span class="o">{</span>6065<span class="o">}</span>
+/piece3/cell_types       Dataset <span class="o">{</span>6065<span class="o">}</span>
+/piece3/cells            Dataset <span class="o">{</span>33073<span class="o">}</span>
+/piece3/point_data       Group
+/piece3/point_data/RTData Dataset <span class="o">{</span>2672<span class="o">}</span>
+/piece3/points           Dataset <span class="o">{</span>2672, 3<span class="o">}</span>
+/piece4                  Group
+/piece4/cell_locations   Dataset <span class="o">{</span>5971<span class="o">}</span>
+/piece4/cell_types       Dataset <span class="o">{</span>5971<span class="o">}</span>
+/piece4/cells            Dataset <span class="o">{</span>32407<span class="o">}</span>
+/piece4/point_data       Group
+/piece4/point_data/RTData Dataset <span class="o">{</span>2574<span class="o">}</span>
+/piece4/points           Dataset <span class="o">{</span>2574, 3<span class="o">}</span></code></pre></div>
+
+<p>Here is a very simple reader for this data:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span><span class="o">,</span> <span class="nn">h5py</span>
+<span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
+<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+
+<span class="k">class</span> <span class="nc">HDF5Reader</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkMultiBlockDataSet&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">))</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">grp_name</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">ug</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnstructuredGrid</span><span class="p">()</span>
+            <span class="n">output</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">ug</span><span class="p">)</span>
+            <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">ug</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">ug</span><span class="p">)</span>
+            <span class="n">grp</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="n">grp_name</span><span class="p">]</span>
+            <span class="n">cells</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cells&#39;</span><span class="p">][:]</span>
+            <span class="n">locations</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cell_locations&#39;</span><span class="p">][:]</span>
+            <span class="n">types</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cell_types&#39;</span><span class="p">][:]</span>
+            <span class="n">ug</span><span class="o">.</span><span class="n">SetCells</span><span class="p">(</span><span class="n">types</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="n">cells</span><span class="p">)</span>
+            <span class="n">pts</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;points&#39;</span><span class="p">][:]</span>
+            <span class="n">ug</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="n">pts</span>
+            <span class="n">pt_arrays</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;point_data&#39;</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">pt_array</span> <span class="ow">in</span> <span class="n">pt_arrays</span><span class="p">:</span>
+                <span class="n">array</span> <span class="o">=</span> <span class="n">pt_arrays</span><span class="p">[</span><span class="n">pt_array</span><span class="p">][:]</span>
+                <span class="n">ug</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">array</span><span class="p">,</span> <span class="n">pt_array</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="mi">1</span>
 
-<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">SetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fname</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fname</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="n">fname</span>
 
-<span class="n">s</span> <span class="o">=</span> <span class="n">StreamExtents</span><span class="p">()</span>
-<span class="n">s</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+    <span class="k">def</span> <span class="nf">GetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span></code></pre></div>
 
-<span class="n">s</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
+<p>This is for the most part self-explanatory (you may want to take a quick
+look at the <a href="http://docs.h5py.org/en/2.3/quick.html">h5py documentation</a>).
+It is mostly a matter of mapping HDF5 groups and datasets to VTK data
+structures:</p>
 
-<p>Note that this is very similar to the examples in the previous blog. The main
-difference is that this algorithm is a sink rather than a filter and instead
-of producing a polydata output which represents the contour, it produces an
-image. For this, we create a rendering pipeline in the constructor and then
-during each pipeline execution, we render the current contour geometry. Finally, we
-save the output image after the last render. In skeleton code, this looks like
-the following.</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># Access the group containing the current block</span>
+<span class="n">grp</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="n">grp_name</span><span class="p">]</span>
+<span class="c"># Read unstructured grip topology</span>
+<span class="n">cells</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cells&#39;</span><span class="p">][:]</span>
+<span class="n">locations</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cell_locations&#39;</span><span class="p">][:]</span>
+<span class="n">types</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cell_types&#39;</span><span class="p">][:]</span>
+<span class="c"># Set the topology data structures</span>
+<span class="n">ug</span><span class="o">.</span><span class="n">SetCells</span><span class="p">(</span><span class="n">types</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="n">cells</span><span class="p">)</span>
+<span class="c"># Read and set the points</span>
+<span class="n">pts</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;points&#39;</span><span class="p">][:]</span>
+<span class="n">ug</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="n">pts</span>
+<span class="c"># Read and set the point arrays</span>
+<span class="n">pt_arrays</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;point_data&#39;</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">pt_array</span> <span class="ow">in</span> <span class="n">pt_arrays</span><span class="p">:</span>
+    <span class="n">array</span> <span class="o">=</span> <span class="n">pt_arrays</span><span class="p">[</span><span class="n">pt_array</span><span class="p">][:]</span>
+    <span class="n">ug</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">array</span><span class="p">,</span> <span class="n">pt_array</span><span class="p">)</span></code></pre></div>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-
-    <span class="bp">self</span><span class="o">.</span><span class="n">Mapper</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">contour</span><span class="o">.</span><span class="n">VTKObject</span><span class="p">)</span>
-    <span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
-
-    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span>
-            <span class="mi">1</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="c"># Stop execution</span>
-        <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
-        <span class="c"># Reset for next potential execution.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
-
-        <span class="n">w2i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkWindowToImageFilter</span><span class="p">()</span>
-        <span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span></code></pre></div>
-
-<p>The trick that makes this example work is in these two lines:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">EraseOff</span><span class="p">()</span>
-<span class="bp">self</span><span class="o">.</span><span class="n">RenWin</span><span class="o">.</span><span class="n">DoubleBufferOff</span><span class="p">()</span></code></pre></div>
-
-<p>When the <code>Erase</code> mode is enabled, the render window renders each time on
-top of the same framebuffer and zbuffer without clearing them. OpenGL decides
-to draw a particular pixel or not depending on the previous value of the z
-buffer. If the old z value is smaller, it keeps the previous pixel.
-Otherwise, it overwrites the pixel. This works perfectly because the object
-we are rendering is opaque. Handling transparencly would require doing the
-passes in a certain order and blending the pixels. I leave that to you as
-an exercise. The output looks as follows. Click on the picture to see the
-streaming in action.</p>
-
-<figure>
-<img src="/assets/composite1.png" alt="Animation" style="margin-left:auto; margin-right:auto" onclick='javascript:this.src="/assets/composite_anim.gif"'/>
-</figure>
-
-<p>This example was mainly for demonstration. The same can be achieved in VTK
-without writing an algorithm. Here is the code.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-
-<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
-
-<span class="n">ps</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPieceScalars</span><span class="p">()</span>
-<span class="n">ps</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-
-<span class="n">mapper</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">ps</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfSubPieces</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
-
-<span class="n">actor</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-<span class="n">actor</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">mapper</span><span class="p">)</span>
-
-<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">actor</span><span class="p">)</span>
-
-<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">GetActiveCamera</span><span class="p">()</span><span class="o">.</span><span class="n">SetPosition</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span></code></pre></div>
-
-<p>The only special thing in this example is the <code>mapper.SetNumberOfSubPieces(20)</code>
-line which tells the mapper to stream its input in 20 steps. This uses the
-same logic as our example in that the mapper does multiple render passes when
-it is asked to render.</p>
-
-<h2>Parallel Compositing</h2>
-
-<p>The examples we covered so far are only one step away from parallel compositing
-so we might as well cover that too. In general, parallel sort last compositing
-involves rendering images with geometry local to each process, transferring
-the frame and zbuffers over the network and then comparing the z values to decide
-which pixels to keep from which framebuffer. For more details on compositing,
-I recommend checking out some of the papers out there, for example
-&quot;An Image Compositing Solution at Scale&quot; by Moreland et al. You should also check
-out <a href="http://icet.sandia.gov/">IceT</a>, which has become the open-source reference
-and production implementation used by many parallel tools including
-VTK/ParaView.</p>
-
-<p>Here is my simple two process example demonstrating compositing.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="kn">import</span> <span class="nn">vtk</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
-<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
-
-<span class="n">comm</span> <span class="o">=</span> <span class="n">MPI</span><span class="o">.</span><span class="n">COMM_WORLD</span>
-<span class="n">rank</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">Get_rank</span><span class="p">()</span>
-<span class="n">size</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">Get_size</span><span class="p">()</span>
-
-<span class="k">if</span> <span class="n">size</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
-    <span class="k">print</span> <span class="s">&#39;This example needs 2 MPI processes&#39;</span>
-    <span class="kn">import</span> <span class="nn">sys</span>
-    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-
-<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkContourFilter</span><span class="p">()</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
-
-<span class="n">ps</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPieceScalars</span><span class="p">()</span>
-<span class="n">ps</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-
-<span class="n">mapper</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyDataMapper</span><span class="p">()</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">ps</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="c"># For streaming</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfSubPieces</span><span class="p">(</span><span class="mi">20</span><span class="o">/</span><span class="n">size</span><span class="p">)</span>
-<span class="c"># For parallel execution</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfPieces</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetPiece</span><span class="p">(</span><span class="n">rank</span><span class="p">)</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetScalarRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
-
-<span class="n">actor</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkActor</span><span class="p">()</span>
-<span class="n">actor</span><span class="o">.</span><span class="n">SetMapper</span><span class="p">(</span><span class="n">mapper</span><span class="p">)</span>
-
-<span class="n">ren</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderer</span><span class="p">()</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">AddActor</span><span class="p">(</span><span class="n">actor</span><span class="p">)</span>
-
-<span class="n">renWin</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRenderWindow</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">AddRenderer</span><span class="p">(</span><span class="n">ren</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">SetSize</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">GetActiveCamera</span><span class="p">()</span><span class="o">.</span><span class="n">SetPosition</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
-<span class="c"># We need to do this manually because we want z buffer</span>
-<span class="c"># values to be consistent across MPI ranks.</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">ResetCameraClippingRange</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">Render</span><span class="p">()</span>
-
-<span class="c"># Grab the famebuffer</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnsignedCharArray</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">GetRGBACharPixelData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
-<span class="n">rgba</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-
-<span class="c"># Grab the zbuffer</span>
-<span class="n">z</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkFloatArray</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">GetZbufferData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
-<span class="n">z</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
-
-<span class="c"># Write individual framebuffers</span>
-<span class="n">i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="p">()</span>
-<span class="n">i</span><span class="o">.</span><span class="n">SetDimensions</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-<span class="n">i</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-
-<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPNGWriter</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;composite2_</span><span class="si">%d</span><span class="s">.png&quot;</span> <span class="o">%</span> <span class="n">rank</span><span class="p">)</span>
-<span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span>
-
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="c"># Receive the frame and zbuffers from rank 1</span>
-    <span class="n">rgba2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">rgba</span><span class="p">)</span>
-    <span class="n">z2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">rgba2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">z2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
-    <span class="c"># Compositing.</span>
-    <span class="c"># Find where the zbuffer values of the remote</span>
-    <span class="c"># image are smaller (pixels are closer).</span>
-    <span class="n">loc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">z2</span> <span class="o">&lt;</span> <span class="n">z</span><span class="p">)</span>
-    <span class="c"># Use those locations to overwrite local pixels</span>
-    <span class="c"># with remote pixels.</span>
-    <span class="n">rgba</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">rgba2</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span>
-
-    <span class="c"># Write the composited image.</span>
-    <span class="n">i</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkImageData</span><span class="p">()</span>
-    <span class="n">i</span><span class="o">.</span><span class="n">SetDimensions</span><span class="p">(</span><span class="mi">600</span><span class="p">,</span> <span class="mi">600</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-    <span class="n">i</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-
-    <span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPNGWriter</span><span class="p">()</span>
-    <span class="n">w</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
-    <span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;composite2.png&quot;</span><span class="p">)</span>
-    <span class="n">w</span><span class="o">.</span><span class="n">Write</span><span class="p">()</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">rgba</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">z</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span></code></pre></div>
-
-<p>There are a few interesting bits to this example. First, the following
-sets up distributed processing pipeline as well as streaming:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># For streaming</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfSubPieces</span><span class="p">(</span><span class="mi">20</span><span class="o">/</span><span class="n">size</span><span class="p">)</span>
-<span class="c"># For parallel execution</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetNumberOfPieces</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
-<span class="n">mapper</span><span class="o">.</span><span class="n">SetPiece</span><span class="p">(</span><span class="n">rank</span><span class="p">)</span></code></pre></div>
-
-<p>Note how each process is asked to process the piece with index <code>rank</code> among
-a group of size <code>size</code>. In addition, each process is asked to stream using
-<code>20/size</code> pieces. With 2 ranks, we still have 20 pieces total. The only
-special thing we have to do for compositing to work is this.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># We need to do this manually because we want z buffer</span>
-<span class="c"># values to be consistent across MPI ranks.</span>
-<span class="n">ren</span><span class="o">.</span><span class="n">ResetCameraClippingRange</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span></code></pre></div>
-
-<p>If we don&#39;t set a global clipping range, each rank will use clipping planes
-based on local data which will lead to inconsistent zbuffer values (which
-are normalized to 0-1).</p>
-
-<p>Then we grab the frame and zbuffer with</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># Grab the famebuffer</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnsignedCharArray</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">GetRGBACharPixelData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
-<span class="n">rgba</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-
-<span class="c"># Grab the zbuffer</span>
-<span class="n">z</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkFloatArray</span><span class="p">()</span>
-<span class="n">renWin</span><span class="o">.</span><span class="n">GetZbufferData</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
-<span class="n">z</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">z</span><span class="p">)</span></code></pre></div>
-
-<p>Then transfer the buffer from rank 1 to 0 with</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="c"># Receive the frame and zbuffers from rank 1</span>
-    <span class="n">rgba2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">rgba</span><span class="p">)</span>
-    <span class="n">z2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">rgba2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">z2</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">source</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">rgba</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">z</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">FLOAT</span><span class="p">],</span> <span class="n">dest</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="mi">77</span><span class="p">)</span></code></pre></div>
-
-<p>Finally compositing is only 2 lines:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># Compositing.</span>
-    <span class="c"># Find where the zbuffer values of the remote</span>
-    <span class="c"># image are smaller (pixels are closer).</span>
-    <span class="n">loc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">z2</span> <span class="o">&lt;</span> <span class="n">z</span><span class="p">)</span>
-    <span class="c"># Use those locations to overwrite local pixels</span>
-    <span class="c"># with remote pixels.</span>
-    <span class="n">rgba</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">rgba2</span><span class="p">[</span><span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span></code></pre></div>
-
-<p>I leave it up to the reader as an exercise to extend this to more
-than 2 ranks. The paper by Ken et al. describes common ways of doing
-this including using a binary tree pattern.</p>
-
-<p>Here are the 2 local images and the final image:</p>
-
-<p><img src="/assets/composite3.png" alt="composite"></p>
-
-<p>In a future blog, I will talk about block-based streaming. Until then,
-happy coding.</p>
+<p>In the next article, we will discover how we can extend this reader to
+support block-based streaming. Until then, happy coding.</p>
 
   </div>
   
