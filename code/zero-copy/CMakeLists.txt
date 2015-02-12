@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 2.8)
+
+find_package(VTK REQUIRED)
+include(${VTK_USE_FILE})
+
+add_executable(constarray constarray.cxx)
+target_link_libraries(constarray vtkCommonDataModel vtkFiltersSources vtkFiltersCore)
+
+add_executable(imagepts imagepts.cxx)
+target_link_libraries(imagepts vtkCommonDataModel vtkFiltersSources vtkFiltersCore)
+
+add_executable(imagesgrid imagesgrid.cxx)
+target_link_libraries(imagesgrid vtkCommonDataModel vtkFiltersSources vtkFiltersCore)
+
+add_executable(imagesgrid2 imagesgrid2.cxx vtkGridSynchronizedTemplates3D2.cxx)
+target_link_libraries(imagesgrid2 vtkCommonDataModel vtkFiltersSources vtkFiltersCore vtkImagingCore)
+
+add_executable(imageugrid imageugrid.cxx vtkCleanUnstructuredGrid.cxx)
+target_link_libraries(imageugrid vtkCommonDataModel vtkFiltersSources vtkFiltersCore vtkImagingCore)
+
+add_executable(imageugrid2 imageugrid2.cxx vtkCleanUnstructuredGrid.cxx vtkThreshold2.cxx vtkCellSet.cxx)
+target_link_libraries(imageugrid2 vtkCommonDataModel vtkFiltersSources vtkFiltersCore vtkImagingCore)
+
+add_executable(cellset cellset.cxx vtkThreshold3.cxx vtkCellSet.cxx)
+target_link_libraries(cellset vtkCommonDataModel vtkFiltersSources vtkFiltersCore vtkImagingCore)
