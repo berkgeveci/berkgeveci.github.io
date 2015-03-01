@@ -51,142 +51,107 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/08/18/vtk-python-4/">
-        Improved VTK - numpy integration (part 4)
+      <a href="/2014/08/21/send-dataobjects/">
+        Sending and receiving VTK data objects using MPI
       </a>
     </h1>
 
-    <span class="post-date">18 Aug 2014</span>
+    <span class="post-date">21 Aug 2014</span>
 
-    <p>Welcome to another blog where we continue to discover VTK&#39;s <code>numpy_interface</code> module. If you are not familiar with this module, I recommend checking out my previous blogs on it ([<a href="/2014/07/28/vtk-python/">1</a>], [<a href="/2014/07/31/vtk-python-2/">2</a>], [<a href="/2014/08/07/vtk-python-3/">3</a>]). In this blog, I will talk about how <code>numpy_interface</code> can be used in a data parallel way. We will be using VTK&#39;s MPI support for this - through VTK&#39;s own vtkMultiProcessController and mpi4py. You may want to check <a href="http://www.kitware.com/blog/home/post/716">my last blog</a> on VTK&#39;s mpi4py integration for some details.</p>
+    <p>Someone asked me on Twitter if it is possible to send VTK objects to slave nodes using mpi4py. The
+answer is sometimes. In the most general case, you need to use something like
+<a href="http://docs.enthought.com/mayavi/tvtk/">tvtk</a> to make use of mpi4py&#39;s ability to send/receive any
+pickled Python object. Even then, tvtk does not pickle references to other VTK objects so you can&#39;t
+send an arbitrary graph of objects using mpi4py.</p>
 
-<p>Let&#39;s get started. First, if you want to run these examples yourself, make sure that VTK is compiled with MPI support on by setting VTK<em>Group</em>MPI to ON during the CMake configuration step. The simplest way to run these examples is to use the pvtkpython executable that gets compiled when Python and MPI support are on. Pvtkpython can be run from the command line as follows (check out your MPI documentation for details).</p>
-<div class="highlight"><pre><code class="language-text" data-lang="text">mpiexec -n 3 ./bin/pvtkpython
-</code></pre></div>
-<p>Now, let&#39;s start with a simple example.</p>
+<p>In the less general case, one can use VTK communicators to send/receive data objects. Here is a
+simple example:</p>
 
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
 
 <span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
 
 <span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
-<span class="n">size</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetNumberOfProcesses</span><span class="p">()</span>
 
-<span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
+    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
 
-<span class="k">print</span> <span class="n">w</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span><span class="o">.</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">.</span><span class="n">GetScalars</span><span class="p">()</span><span class="o">.</span><span class="n">GetRange</span><span class="p">()</span></code></pre></div>
+<p>See the documentation for <code>vtkMultiProcessController</code> and <code>vtkMPIController</code> to see which methods
+are available in C++. Note that not all of these methods are accessible in Python. It is also
+possible to broadcast a data object as follows.</p>
 
-<p>When I run this example on my laptop, I get the following output:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="p">(</span><span class="mf">37.35310363769531</span><span class="p">,</span> <span class="mf">251.69105529785156</span><span class="p">)</span>
-<span class="p">(</span><span class="mf">49.75050354003906</span><span class="p">,</span> <span class="mf">276.8288269042969</span><span class="p">)</span>
-<span class="p">(</span><span class="mf">37.35310363769531</span><span class="p">,</span> <span class="mf">266.57025146484375</span><span class="p">)</span></code></pre></div>
+<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
 
-<p>Depending on a particular run and your OS, you may see something similar or something a bit garbled. Since I didn&#39;t restrict the <code>print</code> call to a particular rank, all processes will print out roughly at the same time and depending on the timing and buffering, may end up mixing up with each others&#39; output. If you examine the output above, you will notice that the overall range of the scalars is (37.35310363769531, 276.8288269042969), which we can confirm by running the example serially.</p>
+<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
 
-<p>Note that <code>vtkRTAnalyticSource</code> is a parallel-aware source and produces partitioned data. The following lines are what tell <code>vtkRTAnalyticSource</code> to produce its output in a distributed way</p>
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">w</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 
-<span class="c"># First we need to ask the source to produce</span>
-<span class="c"># meta-data. Unless UpdateInformation() is</span>
-<span class="c"># called first, SetUpdateExtent() below will</span>
-<span class="c"># have no effect</span>
-<span class="n">w</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
+<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
 
-<span class="c"># Ask the source to produce &quot;size&quot; pieces and</span>
-<span class="c"># select the piece of index &quot;rank&quot; for this process.</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-
-<span class="c"># Cause execution. Note that the source has to</span>
-<span class="c"># be updated directly for the above request to</span>
-<span class="c"># work. Otherwise, downstream pipeline can overwrite</span>
-<span class="c"># requested piece information.</span>
-<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
-
-<p>For more details, see <a href="http://www.vtk.org/Wiki/VTK/Parallel_Pipeline">this page</a>.</p>
-
-<p>So how can we find out the global min and max of the scalars (RTData) array? One way is to use mpi4py to perform a reduction of local values of each process. Or we can use the <code>numpy_interface.algorithms</code> module. Add the following code to the end of our example.</p>
+<p>Both of these methods depend on serializing a data object to a buffer using writers and reading
+back using readers. The legacy readers and writers are used for this. Here is how one can
+directly use this marshaling/unmarshaling capability with mpi4py:</p>
 
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span>
-
-<span class="n">w</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-<span class="n">rtdata</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;RTData&#39;</span><span class="p">]</span>
-<span class="n">_min</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
-<span class="n">_max</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">rtdata</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
+<span class="n">comm</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
 
 <span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="k">print</span> <span class="n">_min</span><span class="p">,</span> <span class="n">_max</span></code></pre></div>
+    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+    <span class="n">ca</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCharArray</span><span class="p">()</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">MarshalDataObject</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="n">ca</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">ca</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">sz</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
+    <span class="n">buff</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">sz</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">buff</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">])</span>
+    <span class="n">pd</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">UnMarshalDataObject</span><span class="p">(</span><span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="n">buff</span><span class="p">),</span> <span class="n">pd</span><span class="p">)</span>
+    <span class="k">print</span> <span class="n">pd</span></code></pre></div>
 
-<p>This should print the following.</p>
+<p>It would be fairly easy to extend this example to use non-blocking communication methods
+available in MPI.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mf">37.3531036377</span> <span class="mf">276.828826904</span></code></pre></div>
+<p>Finally, here is a list of data object types that are supported by the marshaling code:</p>
 
-<p>That simple! All algorithms in the <code>numpy_interface.algorithms</code> module work properly in parallel. Note that <code>min</code>, <code>max</code> and any other parallel algorithm will return the same value on all ranks.</p>
+<ul>
+<li>VTK<em>DIRECTED</em>GRAPH</li>
+<li>VTK<em>UNDIRECTED</em>GRAPH</li>
+<li>VTK<em>IMAGE</em>DATA</li>
+<li>VTK<em>POLY</em>DATA</li>
+<li>VTK<em>RECTILINEAR</em>GRID</li>
+<li>VTK<em>STRUCTURED</em>GRID</li>
+<li>VTK<em>STRUCTURED</em>POINTS</li>
+<li>VTK_TABLE</li>
+<li>VTK_TREE</li>
+<li>VTK<em>UNSTRUCTURED</em>GRID</li>
+<li>VTK<em>MULTIBLOCK</em>DATA_SET</li>
+<li>VTK<em>UNIFORM</em>GRID_AMR</li>
+</ul>
 
-<p>It is possible to force these algorithms to produce local values by setting their controller argument as follows.</p>
+<p>I hope that this answers the question.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># vtkDummyController is a replacement for vtkMPIController</span>
-<span class="c"># that works only locally to each rank.</span>
-<span class="n">_min</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">rtdata</span><span class="p">,</span> <span class="n">controller</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDummyController</span><span class="p">())</span>
-<span class="n">_max</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">rtdata</span><span class="p">,</span> <span class="n">controller</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkDummyController</span><span class="p">())</span>
-
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="k">print</span> <span class="n">_min</span><span class="p">,</span> <span class="n">_max</span></code></pre></div>
-
-<p>This will print the following.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mf">37.3531036377</span> <span class="mf">251.691055298</span></code></pre></div>
-
-<p>All algorithms in the <code>numpy_interface.algorithms</code> module were designed to work in parallel. If you use numpy algorithms directly, you will have to use mpi4py and do the proper reduction.</p>
-
-<p>One final thing. <code>Numpy.dataset_adapter</code> and <code>numpy.algorithms</code> were designed to work properly even when an array does not exist on one or more of the ranks. This occurs when a source can produce a limited number of pieces (1 being the most common case) and the size of the parallel job is larger. Let&#39;s start with an example:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
-
-<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
-<span class="n">size</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetNumberOfProcesses</span><span class="p">()</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCubeSource</span><span class="p">()</span>
-<span class="n">c</span><span class="o">.</span><span class="n">UpdateInformation</span><span class="p">()</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetUpdateExtent</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<span class="n">c</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
-<span class="n">normals</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">]</span>
-
-<span class="k">print</span> <span class="n">normals</span></code></pre></div>
-
-<p>On my machine, this prints out the following.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKNoneArray</span> <span class="nb">object</span> <span class="n">at</span> <span class="mh">0x119176490</span><span class="o">&gt;</span>
-<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKNoneArray</span> <span class="nb">object</span> <span class="n">at</span> <span class="mh">0x11b128490</span><span class="o">&gt;</span>
-<span class="p">[[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
- <span class="p">[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
- <span class="p">[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
- <span class="p">[</span><span class="o">-</span><span class="mf">1.</span>  <span class="mf">0.</span>  <span class="mf">0.</span><span class="p">]</span>
- <span class="o">...</span>
- <span class="p">[</span> <span class="mf">0.</span>  <span class="mf">0.</span>  <span class="mf">1.</span><span class="p">]</span>
- <span class="p">[</span> <span class="mf">0.</span>  <span class="mf">0.</span>  <span class="mf">1.</span><span class="p">]]</span></code></pre></div>
-
-<p>Note how the normals is a <code>VTKNoneArray</code> on 2 of the ranks. This is because <code>vtkCubeSource</code> is not parallel-aware and will produce output only on the first rank. On all other ranks, it will produce empty output. Consider the use case where we want to do something like this with normals.</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">normals</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span></code></pre></div>
-
-<p>One would expect that this would throw an exception on ranks where the normals array does not exist. In fact, the first implementation of the <code>numpy_interface.dataset_adapter</code> returned a <code>None</code> object and threw an exception in such cases as expected. However, this design had a significant flaw. Because of the exception, ranks that did not have the array could not participate in the calculation of global values, which are calculated by performing <code>MPI_Allreduce</code>. This function will hang unless all ranks participate in the reduction. We addressed this flaw by developing the <code>VTKNoneArray</code> class. This class supports all operators that regular arrays support and always returns <code>VTKNoneArray</code>. Furthermore, parallel algorithms function properly when asked to work on a <code>VTKNoneArray</code>.</p>
-
-<p>We have covered a lot ground so far. In the next blog, which will be the last one in this series, I will talk about composite datasets and composite arrays.</p>
-
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/720">Kitware blog</a>.
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/721">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 
