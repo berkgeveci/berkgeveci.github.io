@@ -138,7 +138,7 @@ int vtkThreshold3::RequestData(
   ids->Delete();
 
   vtkIdType cellId, newCellId;
-  vtkIdList *cellPts, *pointMap;
+  vtkIdList *cellPts;
   vtkCell *cell;
   int i, ptId, newId, numPts;
   int numCellPts;
@@ -169,13 +169,6 @@ int vtkThreshold3::RequestData(
   outCD->CopyAllocate(cd);
 
   numPts = input->GetNumberOfPoints();
-
-  pointMap = vtkIdList::New(); //maps old point ids into new
-  pointMap->SetNumberOfIds(numPts);
-  for (i=0; i < numPts; i++)
-    {
-    pointMap->SetId(i,-1);
-    }
 
   // are we using pointScalars?
   usePointScalars = (inScalars->GetNumberOfTuples() == numPts);
@@ -225,9 +218,6 @@ int vtkThreshold3::RequestData(
       ids->InsertNextValue(cellId);
       } // satisfied thresholding
     } // for all cells
-
-  // now clean up / update ourselves
-  pointMap->Delete();
 
   vtkImageData* inputImage = vtkImageData::SafeDownCast(input);
   if (inputImage)
