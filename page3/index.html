@@ -51,177 +51,37 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2015/02/12/zero-copy-arrays/">
-        Zero Copy Arrays
+      <a href="/2015/02/13/zero-copy-sync-templates/">
+        Converting Pointer-Based Algorithms to Zero Copy Arrays
       </a>
     </h1>
 
-    <span class="post-date">12 Feb 2015</span>
+    <span class="post-date">13 Feb 2015</span>
 
-    <p>With this blog, I start a new series covering some of the new
-features in VTK&#39;s data model. Please note that a lot of these improvements are
-very new and are likely to change as we address various kinks we encounter
-as we apply them to various problems.</p>
+    <p>In my <a href="/2015/02/12/zero-copy-arrays/">last blog</a>, I demonstrated
+how VTK&#39;s new &quot;zero copy&quot; infrastructure can be used to develop data arrays
+that use memory layouts different than VTK&#39;s default. Many of VTK&#39;s algorithm
+will work out of box with these arrays - the ones that depend on virtual
+methods such as <code>SetTuple()/GetTuple()</code> and <code>SetValue()/GetValue()</code>. However,
+certain algorithms need to be modified slightly. We&#39;ll cover how this can
+be achieved here.</p>
 
-<p>In these blogs, I will depend heavily on the excellent work done by <a href="http://www.kitware.com/company/team/lonie.html">David
-Lonie</a>,
-which is summarized <a href="http://www.vtk.org/Wiki/VTK/InSituDataStructures">here</a>
-and <a href="http://www.kitware.com/blog/home/post/577">here</a>. I recommend taking a close
-look at the Wiki page before digging too deep into these blogs as I will not
-provide the same level of detail. In summary, we made a number of changes to
-VTK to allow easy creation of datasets and data arrays that use memory layouts
-different than VTK&#39;s defaults. The main objective of these changes was to enable
-tight coupling of VTK with other codes without the need to deep copy data structures
-back and forth. Our main application for this is <em>in situ</em> analysis and
-visualization where the <strong>other code</strong> is a simulation, usually running on a
-supercomputer. However, as I will demonstrate, these changes open the door for
-a lot more. Let&#39;s get down to it.</p>
+<p>If you pass a subclass of <code>vtkMappedDataArray&lt;&gt;</code> to an algorithm that accesses
+the raw data pointer of an array via the <code>GetVoidPointer()</code> method or its ilk,
+you will see the following error at runtime:</p>
 
-<h2>Constant Array</h2>
+<div class="highlight"><pre><code class="language-sh" data-lang="sh">Warning: In /Users/berk/Work/VTK/git/Common/Core/vtkMappedDataArray.txx, line 47
+19vtkImagePointsArrayIdE <span class="o">(</span>0x7fa939c0ecd0<span class="o">)</span>: GetVoidPointer called.
+This is very expensive <span class="k">for</span> vtkMappedDataArray subclasses, since the
+scalar array must be generated <span class="k">for</span> each call. Consider using a
+vtkTypedDataArrayIterator instead.</code></pre></div>
 
-<p>The simplest example that I could think of is a VTK data array that has one
-unique value. Normally, such an array would be created and populated as follows.</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkFloatArray</span><span class="o">&gt;</span> <span class="n">constArray</span><span class="p">;</span>
-<span class="n">constArray</span><span class="o">-&gt;</span><span class="n">SetNumberOfTuples</span><span class="p">(</span><span class="n">nvalues</span><span class="p">);</span>
-<span class="k">for</span><span class="p">(</span><span class="n">vtkIdType</span> <span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="n">nvales</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
-<span class="p">{</span>
-  <span class="n">constArray</span><span class="o">-&gt;</span><span class="n">SetValue</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">constValue</span><span class="p">);</span>
-<span class="p">}</span></code></pre></div>
-
-<p>Obviously, this array uses <code>nvalues * sizeof(float)</code> bytes of memory in addition
-to whatever memory an array requires internally. Pretty wasteful. Wouldn&#39;t  it be
-great if we could create an array that uses only <code>sizeof(float)</code> bytes (+ whatever
-the array uses internally)? With the zero copy infrastructure, we can. Take a quick
-look at the <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/zero-copy/vtkConstantArray.h">header</a>  and the <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/zero-copy/vtkConstantArray.txx">implementation</a>.
-I shamelessly copied and pasted much of this from <a href="https://github.com/Kitware/VTK/blob/master/IO/Exodus/vtkCPExodusIIResultsArrayTemplate.txx"><code>vtkCPExodusIIResultsArrayTemplate</code></a>
-as one can probably guess from the comments I left. This class looks fairly long but
-I actually had to change only a few lines of code, mainly:</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">Scalar</span><span class="o">&gt;</span> <span class="n">Scalar</span><span class="o">&amp;</span> <span class="n">vtkConstantArray</span><span class="o">&lt;</span><span class="n">Scalar</span><span class="o">&gt;</span>
-<span class="o">::</span><span class="n">GetValueReference</span><span class="p">(</span><span class="n">vtkIdType</span> <span class="n">idx</span><span class="p">)</span>
-<span class="p">{</span>
-  <span class="k">return</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Value</span><span class="p">;</span>
-<span class="p">}</span></code></pre></div>
-
-<p>Note that this code ignores the value index, <code>idx</code>, which is expected for a
-constant array. We can exercise this code with the following.</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkConstantArray</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">&gt;</span> <span class="o">&gt;</span> <span class="n">testScalars</span><span class="p">;</span>
-<span class="n">testScalars</span><span class="o">-&gt;</span><span class="n">InitializeArray</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
-<span class="n">testScalars</span><span class="o">-&gt;</span><span class="n">SetName</span><span class="p">(</span><span class="s">&quot;scalars&quot;</span><span class="p">);</span>
-
-<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkImageData</span><span class="o">&gt;</span> <span class="n">image</span><span class="p">;</span>
-<span class="n">image</span><span class="o">-&gt;</span><span class="n">SetDimensions</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">);</span>
-<span class="n">image</span><span class="o">-&gt;</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">testScalars</span><span class="p">.</span><span class="n">GetPointer</span><span class="p">());</span>
-
-<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkLineSource</span><span class="o">&gt;</span> <span class="n">line</span><span class="p">;</span>
-<span class="n">line</span><span class="o">-&gt;</span><span class="n">SetPoint1</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
-<span class="n">line</span><span class="o">-&gt;</span><span class="n">SetPoint2</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">);</span>
-<span class="n">line</span><span class="o">-&gt;</span><span class="n">SetResolution</span><span class="p">(</span><span class="mi">50</span><span class="p">);</span>
-
-<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkProbeFilter</span><span class="o">&gt;</span> <span class="n">probe</span><span class="p">;</span>
-<span class="n">probe</span><span class="o">-&gt;</span><span class="n">SetSourceData</span><span class="p">(</span><span class="n">image</span><span class="p">.</span><span class="n">GetPointer</span><span class="p">());</span>
-<span class="n">probe</span><span class="o">-&gt;</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">line</span><span class="o">-&gt;</span><span class="n">GetOutputPort</span><span class="p">());</span>
-<span class="n">probe</span><span class="o">-&gt;</span><span class="n">Update</span><span class="p">();</span>
-
-<span class="n">vtkDataArray</span><span class="o">*</span> <span class="n">outScalars</span> <span class="o">=</span>
-  <span class="n">probe</span><span class="o">-&gt;</span><span class="n">GetOutput</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetArray</span><span class="p">(</span><span class="s">&quot;scalars&quot;</span><span class="p">);</span>
-<span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="mi">50</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
-  <span class="p">{</span>
-  <span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="s">&quot; : &quot;</span> <span class="o">&lt;&lt;</span> <span class="n">outScalars</span><span class="o">-&gt;</span><span class="n">GetTuple1</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
-  <span class="p">}</span></code></pre></div>
-
-<p>This prints 10 for each point as expected.</p>
-
-<h2>Struct of Arrays</h2>
-
-<p>Let&#39;s do something a bit more involved. As you probably know, VTK stores
-vectors in an interleaved way. When linearly traversing a vector array, the
-component index increases faster than the tuple index. This is commonly referred
-to as array of structs (AOS, see <a href="http://stackoverflow.com/questions/17924705/structure-of-arrays-vs-array-of-structures-in-cuda">this link</a> for example).
-Many simulation codes store their vectors as struct of arrays (SOA).
-<a href="http://www.kitware.com/company/team/lonie.html">Dave</a> developed an array that
-can handle AOS vectors. See the full code <a href="https://github.com/Kitware/VTK/blob/master/IO/Exodus/vtkCPExodusIIResultsArrayTemplate.h">here</a> and
-<a href="https://github.com/Kitware/VTK/blob/master/IO/Exodus/vtkCPExodusIIResultsArrayTemplate.txx">here</a>.
-This class is very similar to <code>vtkConstantArray</code>, which is no surprise given
-that I copied from it for my implementation. The meat of this array is the following
-piece of code.</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">Scalar</span><span class="o">&gt;</span> <span class="n">Scalar</span><span class="o">&amp;</span> <span class="n">vtkCPExodusIIResultsArrayTemplate</span><span class="o">&lt;</span><span class="n">Scalar</span><span class="o">&gt;</span>
-<span class="o">::</span><span class="n">GetValueReference</span><span class="p">(</span><span class="n">vtkIdType</span> <span class="n">idx</span><span class="p">)</span>
-<span class="p">{</span>
-  <span class="k">const</span> <span class="n">vtkIdType</span> <span class="n">tuple</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">/</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">NumberOfComponents</span><span class="p">;</span>
-  <span class="k">const</span> <span class="n">vtkIdType</span> <span class="n">comp</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">%</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">NumberOfComponents</span><span class="p">;</span>
-  <span class="k">return</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Arrays</span><span class="p">[</span><span class="n">comp</span><span class="p">][</span><span class="n">tuple</span><span class="p">];</span>
-<span class="p">}</span></code></pre></div>
-
-<p>Note how this method maps a value reference to the right array and index in
-an SOA data structure. The equivalent of this for VTK&#39;s AOS data structure
-is the following.</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">Scalar</span><span class="o">&gt;</span> <span class="n">Scalar</span><span class="o">&amp;</span> <span class="n">vtkCPExodusIIResultsArrayTemplate</span><span class="o">&lt;</span><span class="n">Scalar</span><span class="o">&gt;</span>
-<span class="o">::</span><span class="n">GetValueReference</span><span class="p">(</span><span class="n">vtkIdType</span> <span class="n">idx</span><span class="p">)</span>
-<span class="p">{</span>
-  <span class="k">return</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Array</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
-<span class="p">}</span></code></pre></div>
-
-<h2>Implicit Points Array</h2>
-
-<p>This requires explanation. In VTK, there are two types of datasets. In one type,
-subclasses of <code>vtkPointSet</code>, the point coordinates are stored explicitly as a
-<code>vtkDataArray</code> (inside a <code>vtkPoints</code>). In the other type, the points coordinates
-are stored implicitly (<code>vtkImageData</code> and <code>vtkRectilinearGrid</code>). There are occasions
-where we may want an implementation that is in between these two types. For example,
-when we threshold an image, the filter produces a <code>vtkUnstructuredGrid</code>, which
-stores its points explicitly. This causes a significant increase in memory usage.
-Wouldn&#39;t it be nice if the threshold filter could create an unstructured grid but
-still refer to the points implicitly? In a future blog, I will describe how
-we can implement a threshold filter that does this and more. Here, let&#39;s look
-at a data array that can used to develop such a filter. See <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/zero-copy/vtkImagePointsArray.h">here</a>
-and <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/zero-copy/vtkImagePointsArray.txx">here</a> for the implementation.
-The meat of this class is as follows.</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">Scalar</span><span class="o">&gt;</span> <span class="n">Scalar</span><span class="o">&amp;</span> <span class="n">vtkImagePointsArray</span><span class="o">&lt;</span><span class="n">Scalar</span><span class="o">&gt;</span>
-<span class="o">::</span><span class="n">GetValueReference</span><span class="p">(</span><span class="n">vtkIdType</span> <span class="n">idx</span><span class="p">)</span>
-<span class="p">{</span>
-  <span class="n">assert</span><span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">Points</span><span class="p">);</span>
-
-  <span class="k">const</span> <span class="n">vtkIdType</span> <span class="n">tuple</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">/</span> <span class="mi">3</span><span class="p">;</span>
-  <span class="k">const</span> <span class="n">vtkIdType</span> <span class="n">comp</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">%</span> <span class="mi">3</span><span class="p">;</span>
-
-  <span class="k">return</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Points</span><span class="o">-&gt;</span><span class="n">GetPoint</span><span class="p">(</span><span class="n">tuple</span><span class="p">)[</span><span class="n">comp</span><span class="p">];</span>
-<span class="p">}</span></code></pre></div>
-
-<p>Note that <code>Points</code> is actually a <code>vtkImageData</code>, which calculates point coordinates
-implicitly with the following code.</p>
-
-<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="n">vtkImageData</span><span class="o">::</span><span class="n">GetPoint</span><span class="p">(</span><span class="n">vtkIdType</span> <span class="n">ptId</span><span class="p">,</span> <span class="kt">double</span> <span class="n">x</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
-<span class="p">{</span>
-  <span class="kt">int</span> <span class="n">i</span><span class="p">,</span> <span class="n">loc</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span>
-  <span class="k">const</span> <span class="kt">double</span> <span class="o">*</span><span class="n">origin</span> <span class="o">=</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Origin</span><span class="p">;</span>
-  <span class="k">const</span> <span class="kt">double</span> <span class="o">*</span><span class="n">spacing</span> <span class="o">=</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Spacing</span><span class="p">;</span>
-  <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">extent</span> <span class="o">=</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">Extent</span><span class="p">;</span>
-
-  <span class="n">vtkIdType</span> <span class="n">dims</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span>
-  <span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">extent</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">extent</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">;</span>
-  <span class="n">dims</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">extent</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">-</span> <span class="n">extent</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">;</span>
-  <span class="n">dims</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">extent</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">-</span> <span class="n">extent</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">;</span>
-
-  <span class="n">loc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">ptId</span> <span class="o">%</span> <span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
-  <span class="n">loc</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">ptId</span> <span class="o">/</span> <span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">%</span> <span class="n">dims</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
-  <span class="n">loc</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">ptId</span> <span class="o">/</span> <span class="p">(</span><span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">dims</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
-
-  <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="mi">3</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
-    <span class="p">{</span>
-    <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">origin</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">+</span><span class="n">extent</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="p">])</span> <span class="o">*</span> <span class="n">spacing</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
-    <span class="p">}</span>
-<span class="p">}</span></code></pre></div>
-
-<p>I left out some of the code for simplicity. We can exercise this class with the following.</p>
+<p>If you see this error, it may be a good idea to refactor the offending algorithm
+to avoid this deep copy (which is slow and wastes memory). As an example, let&#39;s
+consider a piece of code that uses the <code>vtkImagePointsArray</code> from the last blog.</p>
 
 <div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkRTAnalyticSource</span><span class="o">&gt;</span> <span class="n">source</span><span class="p">;</span>
-<span class="n">source</span><span class="o">-&gt;</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">50</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="o">-</span><span class="mi">50</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="o">-</span><span class="mi">50</span><span class="p">,</span> <span class="mi">50</span><span class="p">);</span>
+<span class="n">source</span><span class="o">-&gt;</span><span class="n">SetWholeExtent</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">);</span>
 <span class="n">source</span><span class="o">-&gt;</span><span class="n">Update</span><span class="p">();</span>
 
 <span class="n">vtkImageData</span><span class="o">*</span> <span class="n">wavelet</span> <span class="o">=</span> <span class="n">source</span><span class="o">-&gt;</span><span class="n">GetOutput</span><span class="p">();</span>
@@ -236,31 +96,118 @@ implicitly with the following code.</p>
 <span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkPoints</span><span class="o">&gt;</span> <span class="n">points</span><span class="p">;</span>
 <span class="n">points</span><span class="o">-&gt;</span><span class="n">SetData</span><span class="p">(</span><span class="n">testPts</span><span class="p">.</span><span class="n">GetPointer</span><span class="p">());</span>
 
-<span class="c1">// This creates an unstructured grid from the input</span>
-<span class="c1">// image data.</span>
-<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkCleanUnstructuredGrid</span><span class="o">&gt;</span> <span class="n">toUGrid</span><span class="p">;</span>
-<span class="n">toUGrid</span><span class="o">-&gt;</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">wavelet</span><span class="p">);</span>
-<span class="n">toUGrid</span><span class="o">-&gt;</span><span class="n">Update</span><span class="p">();</span>
+<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkStructuredGrid</span><span class="o">&gt;</span> <span class="n">sgrid</span><span class="p">;</span>
+<span class="n">sgrid</span><span class="o">-&gt;</span><span class="n">SetDimensions</span><span class="p">(</span><span class="n">wavelet</span><span class="o">-&gt;</span><span class="n">GetDimensions</span><span class="p">());</span>
+<span class="n">sgrid</span><span class="o">-&gt;</span><span class="n">SetPoints</span><span class="p">(</span><span class="n">points</span><span class="p">.</span><span class="n">GetPointer</span><span class="p">());</span>
+<span class="n">sgrid</span><span class="o">-&gt;</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">SetScalars</span><span class="p">(</span><span class="n">wavelet</span><span class="o">-&gt;</span><span class="n">GetPointData</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetScalars</span><span class="p">());</span>
 
-<span class="n">vtkUnstructuredGrid</span><span class="o">*</span> <span class="n">ugrid</span> <span class="o">=</span> <span class="n">toUGrid</span><span class="o">-&gt;</span><span class="n">GetOutput</span><span class="p">();</span>
-<span class="c1">// Here we substitute the implicit points.</span>
-<span class="n">ugrid</span><span class="o">-&gt;</span><span class="n">SetPoints</span><span class="p">(</span><span class="n">points</span><span class="p">.</span><span class="n">GetPointer</span><span class="p">());</span>
-
-<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkContourFilter</span><span class="o">&gt;</span> <span class="n">contour2</span><span class="p">;</span>
-<span class="n">contour2</span><span class="o">-&gt;</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">ugrid</span><span class="p">);</span>
+<span class="n">vtkNew</span><span class="o">&lt;</span><span class="n">vtkGridSynchronizedTemplates3D</span><span class="o">&gt;</span> <span class="n">contour2</span><span class="p">;</span>
+<span class="n">contour2</span><span class="o">-&gt;</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">sgrid</span><span class="p">.</span><span class="n">GetPointer</span><span class="p">());</span>
 <span class="n">contour2</span><span class="o">-&gt;</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">200</span><span class="p">);</span>
 <span class="n">contour2</span><span class="o">-&gt;</span><span class="n">Update</span><span class="p">();</span></code></pre></div>
 
-<p>The full code which can be found <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/zero-copy/imageugrid.cxx">here</a>
-verifies that the output of the contour filter matches the output that is generated
-from an unstructured grid with explicit points.</p>
+<p>The idea behind this is to treat an image data as a <code>vtkStructuredGrid</code> without
+creating an explicit point array. Not very useful on its own but it can
+be extended fairly easily to represent dataset not currently efficiently handled by VTK
+such as a grid curvilinear in x-y but regular in z, a regular spherical grid etc.
+When you run this example, you will notice the warning I mentioned above. The result
+will be correct, however. If you track down the origin of the warning, you end
+up in <code>vtkGridSynchronizedTemplates3D()</code> :</p>
 
-<p>We covered a few examples of data array subclasses that use memory
-layouts different than VTK&#39;s default. Most filters should work out-of-box
-when they encounter these arrays. However, some filters, especially those that
-directly access raw pointers, need to be changed. In my next blog, I will
-demonstrate how such filters can be easily updated. Until then, happy zero
-copying.</p>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">T</span><span class="p">,</span> <span class="k">class</span> <span class="nc">PointsType</span><span class="o">&gt;</span>
+<span class="kt">void</span> <span class="n">ContourGrid</span><span class="p">(</span><span class="n">vtkGridSynchronizedTemplates3D</span> <span class="o">*</span><span class="n">self</span><span class="p">,</span> <span class="p">...)</span>
+<span class="p">{</span>
+  <span class="kt">int</span> <span class="o">*</span><span class="n">inExt</span> <span class="o">=</span> <span class="n">input</span><span class="o">-&gt;</span><span class="n">GetExtent</span><span class="p">();</span>
+  <span class="kt">int</span> <span class="n">xdim</span> <span class="o">=</span> <span class="n">exExt</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">exExt</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">ydim</span> <span class="o">=</span> <span class="n">exExt</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">-</span> <span class="n">exExt</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">;</span>
+  <span class="kt">double</span> <span class="n">n0</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">n1</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span>  <span class="c1">// used in gradient macro</span>
+  <span class="kt">double</span> <span class="o">*</span><span class="n">values</span> <span class="o">=</span> <span class="n">self</span><span class="o">-&gt;</span><span class="n">GetValues</span><span class="p">();</span>
+  <span class="kt">int</span> <span class="n">numContours</span> <span class="o">=</span> <span class="n">self</span><span class="o">-&gt;</span><span class="n">GetNumberOfContours</span><span class="p">();</span>
+  <span class="n">PointsType</span> <span class="o">*</span><span class="n">inPtPtrX</span><span class="p">,</span> <span class="o">*</span><span class="n">inPtPtrY</span><span class="p">,</span> <span class="o">*</span><span class="n">inPtPtrZ</span><span class="p">;</span>
+  <span class="n">PointsType</span> <span class="o">*</span><span class="n">p0</span><span class="p">,</span> <span class="o">*</span><span class="n">p1</span><span class="p">,</span> <span class="o">*</span><span class="n">p2</span><span class="p">,</span> <span class="o">*</span><span class="n">p3</span><span class="p">;</span>
+  <span class="n">T</span> <span class="o">*</span><span class="n">inPtrX</span><span class="p">,</span> <span class="o">*</span><span class="n">inPtrY</span><span class="p">,</span> <span class="o">*</span><span class="n">inPtrZ</span><span class="p">;</span>
+  <span class="n">T</span> <span class="o">*</span><span class="n">s0</span><span class="p">,</span> <span class="o">*</span><span class="n">s1</span><span class="p">,</span> <span class="o">*</span><span class="n">s2</span><span class="p">,</span> <span class="o">*</span><span class="n">s3</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">XMin</span><span class="p">,</span> <span class="n">XMax</span><span class="p">,</span> <span class="n">YMin</span><span class="p">,</span> <span class="n">YMax</span><span class="p">,</span> <span class="n">ZMin</span><span class="p">,</span> <span class="n">ZMax</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">incY</span><span class="p">,</span> <span class="n">incZ</span><span class="p">;</span>
+  <span class="n">PointsType</span><span class="o">*</span> <span class="n">points</span> <span class="o">=</span>
+    <span class="k">static_cast</span><span class="o">&lt;</span><span class="n">PointsType</span><span class="o">*&gt;</span><span class="p">(</span>
+    <span class="n">input</span><span class="o">-&gt;</span><span class="n">GetPoints</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetData</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetVoidPointer</span><span class="p">(</span><span class="mi">0</span><span class="p">));</span></code></pre></div>
+
+<p>The problem is in the <code>GetVoidPointer(0)</code> call that asks for a raw pointer of type
+<code>PointsType</code> (double in this case). The solution to this issue is described in
+detail in David Lonie&#39;s excellent <a href="http://www.vtk.org/Wiki/VTK/InSituDataStructures">Wiki page</a>.
+Using the method described by David, I converted <code>vtkGridSynchronizedTemplates3D</code>.
+The full code can be found <a href="https://github.com/berkgeveci/berkgeveci.github.io/blob/jekyll/code/zero-copy/vtkGridSynchronizedTemplates3D2.cxx">here</a>. The change is minimal. I first made
+a change to the following function:</p>
+
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">T</span><span class="o">&gt;</span>
+<span class="kt">void</span> <span class="n">ContourGrid</span><span class="p">(</span><span class="n">vtkGridSynchronizedTemplates3D</span> <span class="o">*</span><span class="n">self</span><span class="p">,</span>
+                 <span class="kt">int</span> <span class="o">*</span><span class="n">exExt</span><span class="p">,</span> <span class="n">T</span> <span class="o">*</span><span class="n">scalars</span><span class="p">,</span> <span class="n">vtkStructuredGrid</span> <span class="o">*</span><span class="n">input</span><span class="p">,</span>
+                 <span class="n">vtkPolyData</span> <span class="o">*</span><span class="n">output</span><span class="p">,</span> <span class="n">vtkDataArray</span> <span class="o">*</span><span class="n">inScalars</span><span class="p">,</span>
+                 <span class="kt">bool</span> <span class="n">outputTriangles</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">switch</span><span class="p">(</span><span class="n">input</span><span class="o">-&gt;</span><span class="n">GetPoints</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetData</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetDataType</span><span class="p">())</span>
+    <span class="p">{</span>
+    <span class="n">vtkTemplateMacro</span><span class="p">(</span>
+      <span class="n">ContourGrid</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">exExt</span><span class="p">,</span> <span class="n">scalars</span><span class="p">,</span> <span class="n">input</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span>
+        <span class="k">static_cast</span><span class="o">&lt;</span><span class="n">VTK_TT</span> <span class="o">*&gt;</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">inScalars</span><span class="p">,</span> <span class="n">outputTriangles</span><span class="p">));</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+
+<p>For those not familiar with VTK&#39;s template macros, <code>vtkTemplateMacro</code> expands
+to a switch statement that looks like the following.</p>
+
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="cp">#define vtkTemplateMacroCase(typeN, type, call)     \</span>
+<span class="cp">  case typeN: { typedef type VTK_TT; call; }; break</span>
+<span class="cp">#define vtkTemplateMacro(call)                                              \</span>
+<span class="cp">  vtkTemplateMacroCase(VTK_DOUBLE, double, call);                           \</span>
+<span class="cp">  vtkTemplateMacroCase(VTK_FLOAT, float, call);                             \</span>
+<span class="cp">  vtkTemplateMacroCase_ll(VTK_LONG_LONG, long long, call)                   \</span>
+<span class="cp">  vtkTemplateMacroCase_ll(VTK_UNSIGNED_LONG_LONG, unsigned long long, call) \</span>
+<span class="cp">...</span></code></pre></div>
+
+<p>This allows calling a templated function such as <code>ContourGrid</code> with the right
+template type. See above for the original <code>ContourGrid</code> signature with 2 template
+arguments. I changed the single template argument <code>ContourGrid</code> to the following.</p>
+
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">T</span><span class="o">&gt;</span>
+<span class="kt">void</span> <span class="n">ContourGrid</span><span class="p">(</span><span class="n">vtkGridSynchronizedTemplates3D2</span> <span class="o">*</span><span class="n">self</span><span class="p">,</span>
+                 <span class="kt">int</span> <span class="o">*</span><span class="n">exExt</span><span class="p">,</span> <span class="n">T</span> <span class="o">*</span><span class="n">scalars</span><span class="p">,</span> <span class="n">vtkStructuredGrid</span> <span class="o">*</span><span class="n">input</span><span class="p">,</span>
+                 <span class="n">vtkPolyData</span> <span class="o">*</span><span class="n">output</span><span class="p">,</span> <span class="n">vtkDataArray</span> <span class="o">*</span><span class="n">inScalars</span><span class="p">,</span>
+                 <span class="kt">bool</span> <span class="n">outputTriangles</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="n">vtkDataArray</span><span class="o">*</span> <span class="n">pts</span> <span class="o">=</span> <span class="n">input</span><span class="o">-&gt;</span><span class="n">GetPoints</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">GetData</span><span class="p">();</span>
+  <span class="k">switch</span><span class="p">(</span><span class="n">pts</span><span class="o">-&gt;</span><span class="n">GetDataType</span><span class="p">())</span>
+    <span class="p">{</span>
+    <span class="n">vtkDataArrayIteratorMacro</span><span class="p">(</span><span class="n">pts</span><span class="p">,</span>
+      <span class="n">ContourGrid</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">exExt</span><span class="p">,</span> <span class="n">scalars</span><span class="p">,</span>
+        <span class="n">input</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="n">vtkDAValueType</span><span class="o">*&gt;</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span>
+        <span class="n">inScalars</span><span class="p">,</span> <span class="n">outputTriangles</span><span class="p">,</span> <span class="n">vtkDABegin</span><span class="p">));</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+
+<p>Note the usage of <code>vtkDataArrayIteratorMacro</code> macro. This macro was introduced
+by David along with <code>vtkDABegin</code> and <code>vtkDAValueType</code>. See his Wiki page for details.
+I then changed the other <code>ContourGrid</code> method as follows.</p>
+
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">template</span> <span class="o">&lt;</span><span class="k">class</span> <span class="nc">T</span><span class="p">,</span> <span class="k">class</span> <span class="nc">PointsType</span><span class="p">,</span> <span class="k">class</span> <span class="nc">InputIterator</span><span class="o">&gt;</span>
+<span class="kt">void</span> <span class="n">ContourGrid</span><span class="p">(</span><span class="n">vtkGridSynchronizedTemplates3D2</span> <span class="o">*</span><span class="n">self</span><span class="p">,</span>
+                 <span class="kt">int</span> <span class="o">*</span><span class="n">exExt</span><span class="p">,</span> <span class="n">T</span> <span class="o">*</span><span class="n">scalars</span><span class="p">,</span>
+                 <span class="n">vtkStructuredGrid</span> <span class="o">*</span><span class="n">input</span><span class="p">,</span> <span class="n">vtkPolyData</span> <span class="o">*</span><span class="n">output</span><span class="p">,</span>
+                 <span class="n">PointsType</span><span class="o">*</span><span class="p">,</span> <span class="n">vtkDataArray</span> <span class="o">*</span><span class="n">inScalars</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">outputTriangles</span><span class="p">,</span>
+                 <span class="n">InputIterator</span> <span class="n">points</span><span class="p">)</span>
+<span class="p">{</span>
+<span class="p">...</span>
+<span class="p">}</span></code></pre></div>
+
+<p>Note how <code>points</code> is now of type <code>InputIterator</code> which is a template argument
+magically defined within the <code>vtkDataArrayIteratorMacro</code>. This class leverages
+the <code>vtkMappedDataArray&lt;&gt;</code> API to provide pointer style semantics. This is it!
+After these changes, the pipeline shown above can now be run without any deep
+copies.</p>
+
+<p>In future blogs, I will continue to expand on zero copy structures as well as
+dig into the cost of using these abstractions in terms of performance.</p>
 
   </div>
   

@@ -51,189 +51,25 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2015/01/08/h5py-writer-reader/">
-        HDF5 Reader and Writer for Unstructured Grids
+      <a href="/2015/01/19/block-streaming/">
+        Block-Based Streaming
       </a>
     </h1>
 
-    <span class="post-date">08 Jan 2015</span>
+    <span class="post-date">19 Jan 2015</span>
 
-    <p>We are taking a quick break from the series of blogs on streaming. Instead,
-in preparation for a discussion on block-based streaming, I will discuss how
-you can write multi-block unstructured grid readers and writers in Python using
-the <code>h5py</code> library. Let&#39;s get right down business. Here is the writer code.</p>
+    <p>This is it. My last blog on streaming, at least for a while.
+Looking back, I have been writing about the VTK pipeline and
+how it can be leveraged to do cool things since September.
+This will be a cool topic to wrap this series up with.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
-<span class="kn">import</span> <span class="nn">h5py</span>
-<span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<p>In the <a href="/2015/01/08/h5py-writer-reader/">last blog</a>,
+I demonstrated how to write a dataset in blocks using h5py and
+reading it with a simple reader. When writing the blocks, we also
+saved meta-data for the spatial bounds of each block. We will
+leverage this meta-data here. Here is the reader.</p>
 
-<span class="k">class</span> <span class="nc">HDF5Writer</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
-            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkUnstructuredGrid&#39;</span><span class="p">,</span>
-            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span> <span class="o">=</span> <span class="mi">1</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">=</span> <span class="mi">0</span>
-
-    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">))</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-              <span class="bp">self</span><span class="o">.</span><span class="n">__File</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
-
-        <span class="n">grp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span><span class="p">)</span>
-        <span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">GetBounds</span><span class="p">()</span>
-
-        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cells&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Cells</span><span class="p">)</span>
-        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_types&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellTypes</span><span class="p">)</span>
-        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_locations&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellLocations</span><span class="p">)</span>
-
-        <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;points&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Points</span><span class="p">)</span>
-
-        <span class="n">pdata</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;point_data&quot;</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
-            <span class="n">pdata</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span>
-                <span class="mi">1</span><span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c"># Stop execution</span>
-            <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
-                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="c"># Reset values.</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
-        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_NUMBER_OF_PIECES</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span><span class="p">)</span>
-        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
-            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">UPDATE_PIECE_NUMBER</span><span class="p">(),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span><span class="p">)</span>
-        <span class="k">return</span> <span class="mi">1</span>
-
-    <span class="k">def</span> <span class="nf">SetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fname</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">fname</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="n">fname</span>
-
-    <span class="k">def</span> <span class="nf">GetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span>
-
-    <span class="k">def</span> <span class="nf">SetNumberOfPieces</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">npieces</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">npieces</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span> <span class="o">=</span> <span class="n">npieces</span>
-
-    <span class="k">def</span> <span class="nf">GetNumberOfPieces</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__NumberOfPieces</span></code></pre></div>
-
-<p>First of all, this writer uses streaming as described in
-<a href="/2014/11/26/streaming-space/">a previous blog</a>. See also
-<a href="/2014/11/09/streaming-time/">this blog</a> for a more detailed
-description of how streaming works. The meat of the writer is actually just
-a few lines:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">grp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__CurrentPiece</span><span class="p">)</span>
-<span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">GetBounds</span><span class="p">()</span>
-
-<span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cells&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Cells</span><span class="p">)</span>
-<span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_types&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellTypes</span><span class="p">)</span>
-<span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_locations&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellLocations</span><span class="p">)</span>
-
-<span class="n">pdata</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;point_data&quot;</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
-    <span class="n">pdata</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="n">name</span><span class="p">])</span></code></pre></div>
-
-<p>This block of code writes the 3 data arrays specific to <code>vtkUnstructuredGrid</code>s:
-cells, cell types and cell locations. In short, <code>cells</code> describes the connectivity
-of cells (which points they contain), <code>cell_types</code> describe the type of each cell
-and <code>cell_locations</code> stores the offset of each cell in the <code>cells</code> array for quick
-random access. I will not describe these in further detail here.
-See the VTK Users&#39; Guide for more information. I also added support for point arrays.
-Writing out cell arrays is left to you as an exercise.</p>
-
-<p>Note that, in addition to writing these arrays, I wrote the spatial bounds of
-each block as a meta-data (attribute). Why will become clear in the next blog (hint:
-think demand-driven pipeline and streaming).</p>
-
-<p>We can exercise this writer with the following code:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkRTAnalyticSource</span><span class="p">()</span>
-
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkClipDataSet</span><span class="p">()</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">c</span><span class="o">.</span><span class="n">SetValue</span><span class="p">(</span><span class="mi">157</span><span class="p">)</span>
-
-<span class="n">w</span> <span class="o">=</span> <span class="n">HDF5Writer</span><span class="p">()</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test.h5&quot;</span><span class="p">)</span>
-<span class="n">w</span><span class="o">.</span><span class="n">SetNumberOfPieces</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
-
-<span class="n">w</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
-
-<p>This produces a file like this:</p>
-
-<div class="highlight"><pre><code class="language-sh" data-lang="sh">&gt;&gt;&gt; h5ls -r test.h5
-/                        Group
-/piece0                  Group
-/piece0/cell_locations   Dataset <span class="o">{</span>4778<span class="o">}</span>
-/piece0/cell_types       Dataset <span class="o">{</span>4778<span class="o">}</span>
-/piece0/cells            Dataset <span class="o">{</span>26534<span class="o">}</span>
-/piece0/point_data       Group
-/piece0/point_data/RTData Dataset <span class="o">{</span>2402<span class="o">}</span>
-/piece0/points           Dataset <span class="o">{</span>2402, 3<span class="o">}</span>
-/piece1                  Group
-/piece1/cell_locations   Dataset <span class="o">{</span>4609<span class="o">}</span>
-/piece1/cell_types       Dataset <span class="o">{</span>4609<span class="o">}</span>
-/piece1/cells            Dataset <span class="o">{</span>25609<span class="o">}</span>
-/piece1/point_data       Group
-/piece1/point_data/RTData Dataset <span class="o">{</span>2284<span class="o">}</span>
-/piece1/points           Dataset <span class="o">{</span>2284, 3<span class="o">}</span>
-/piece2                  Group
-/piece2/cell_locations   Dataset <span class="o">{</span>4173<span class="o">}</span>
-/piece2/cell_types       Dataset <span class="o">{</span>4173<span class="o">}</span>
-/piece2/cells            Dataset <span class="o">{</span>23265<span class="o">}</span>
-/piece2/point_data       Group
-/piece2/point_data/RTData Dataset <span class="o">{</span>2156<span class="o">}</span>
-/piece2/points           Dataset <span class="o">{</span>2156, 3<span class="o">}</span>
-/piece3                  Group
-/piece3/cell_locations   Dataset <span class="o">{</span>6065<span class="o">}</span>
-/piece3/cell_types       Dataset <span class="o">{</span>6065<span class="o">}</span>
-/piece3/cells            Dataset <span class="o">{</span>33073<span class="o">}</span>
-/piece3/point_data       Group
-/piece3/point_data/RTData Dataset <span class="o">{</span>2672<span class="o">}</span>
-/piece3/points           Dataset <span class="o">{</span>2672, 3<span class="o">}</span>
-/piece4                  Group
-/piece4/cell_locations   Dataset <span class="o">{</span>5971<span class="o">}</span>
-/piece4/cell_types       Dataset <span class="o">{</span>5971<span class="o">}</span>
-/piece4/cells            Dataset <span class="o">{</span>32407<span class="o">}</span>
-/piece4/point_data       Group
-/piece4/point_data/RTData Dataset <span class="o">{</span>2574<span class="o">}</span>
-/piece4/points           Dataset <span class="o">{</span>2574, 3<span class="o">}</span></code></pre></div>
-
-<p>Here is a very simple reader for this data:</p>
-
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span><span class="o">,</span> <span class="nn">h5py</span>
-<span class="kn">from</span> <span class="nn">vtk.util.vtkAlgorithm</span> <span class="kn">import</span> <span class="n">VTKPythonAlgorithmBase</span>
-<span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-
-<span class="k">class</span> <span class="nc">HDF5Reader</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">HDF5Reader</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
             <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
@@ -241,11 +77,52 @@ think demand-driven pipeline and streaming).</p>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
 
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="kn">import</span> <span class="nn">re</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&#39;piece([0-9]*)&#39;</span><span class="p">)</span>
+
+        <span class="n">md</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">grp_name</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">grp_name</span><span class="p">)</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">md</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">bmd</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+            <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">grp</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="n">grp_name</span><span class="p">]</span>
+            <span class="n">bds</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span>
+            <span class="n">bmd</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">(),</span> <span class="n">bds</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+
+        <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">COMPOSITE_DATA_META_DATA</span><span class="p">(),</span>
+            <span class="n">md</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="mi">1</span>
+
     <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
         <span class="n">output</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">))</span>
+
+        <span class="kn">import</span> <span class="nn">re</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&#39;piece([0-9]*)&#39;</span><span class="p">)</span>
+
         <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">()):</span>
+            <span class="n">uci</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">uci</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">pieces</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">pieces</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">num</span> <span class="k">for</span> <span class="n">num</span> <span class="ow">in</span> <span class="n">uci</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="n">f</span>
         <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="k">for</span> <span class="n">grp_name</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">nblocks</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">pieces</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">SetNumberOfBlocks</span><span class="p">(</span><span class="n">nblocks</span><span class="p">)</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">grp_name</span> <span class="ow">in</span> <span class="n">pieces</span><span class="p">:</span>
             <span class="n">ug</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkUnstructuredGrid</span><span class="p">()</span>
             <span class="n">output</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">ug</span><span class="p">)</span>
             <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
@@ -261,6 +138,7 @@ think demand-driven pipeline and streaming).</p>
             <span class="k">for</span> <span class="n">pt_array</span> <span class="ow">in</span> <span class="n">pt_arrays</span><span class="p">:</span>
                 <span class="n">array</span> <span class="o">=</span> <span class="n">pt_arrays</span><span class="p">[</span><span class="n">pt_array</span><span class="p">][:]</span>
                 <span class="n">ug</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">array</span><span class="p">,</span> <span class="n">pt_array</span><span class="p">)</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
 
         <span class="k">return</span> <span class="mi">1</span>
 
@@ -272,30 +150,431 @@ think demand-driven pipeline and streaming).</p>
     <span class="k">def</span> <span class="nf">GetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span></code></pre></div>
 
-<p>This is for the most part self-explanatory (you may want to take a quick
-look at the <a href="http://docs.h5py.org/en/2.3/quick.html">h5py documentation</a>).
-It is mostly a matter of mapping HDF5 groups and datasets to VTK data
-structures:</p>
+<p>The part that reads data is almost identical to the reader in
+the last blog so I won&#39;t cover that here. The interesting part
+is related to meta-data and request. Here is the meta-data part.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c"># Access the group containing the current block</span>
-<span class="n">grp</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="n">grp_name</span><span class="p">]</span>
-<span class="c"># Read unstructured grip topology</span>
-<span class="n">cells</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cells&#39;</span><span class="p">][:]</span>
-<span class="n">locations</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cell_locations&#39;</span><span class="p">][:]</span>
-<span class="n">types</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;cell_types&#39;</span><span class="p">][:]</span>
-<span class="c"># Set the topology data structures</span>
-<span class="n">ug</span><span class="o">.</span><span class="n">SetCells</span><span class="p">(</span><span class="n">types</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="n">cells</span><span class="p">)</span>
-<span class="c"># Read and set the points</span>
-<span class="n">pts</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;points&#39;</span><span class="p">][:]</span>
-<span class="n">ug</span><span class="o">.</span><span class="n">Points</span> <span class="o">=</span> <span class="n">pts</span>
-<span class="c"># Read and set the point arrays</span>
-<span class="n">pt_arrays</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s">&#39;point_data&#39;</span><span class="p">]</span>
-<span class="k">for</span> <span class="n">pt_array</span> <span class="ow">in</span> <span class="n">pt_arrays</span><span class="p">:</span>
-    <span class="n">array</span> <span class="o">=</span> <span class="n">pt_arrays</span><span class="p">[</span><span class="n">pt_array</span><span class="p">][:]</span>
-    <span class="n">ug</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">array</span><span class="p">,</span> <span class="n">pt_array</span><span class="p">)</span></code></pre></div>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="mi">1</span>  <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+<span class="mi">2</span>      <span class="kn">import</span> <span class="nn">re</span>
+<span class="mi">3</span>      <span class="n">p</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&#39;piece([0-9]*)&#39;</span><span class="p">)</span>
+<span class="mi">4</span>
+<span class="mi">5</span>      <span class="n">md</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
+<span class="mi">6</span>      <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
+<span class="mi">7</span>      <span class="k">for</span> <span class="n">grp_name</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+<span class="mi">8</span>          <span class="n">idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">grp_name</span><span class="p">)</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+<span class="mi">9</span>          <span class="n">md</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+<span class="mi">10</span>         <span class="n">bmd</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+<span class="mi">11</span>         <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+<span class="mi">12</span>         <span class="n">grp</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="n">grp_name</span><span class="p">]</span>
+<span class="mi">13</span>         <span class="n">bds</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span>
+<span class="mi">14</span>         <span class="n">bmd</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">(),</span> <span class="n">bds</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+<span class="mi">15</span>
+<span class="mi">16</span>     <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+<span class="mi">17</span>
+<span class="mi">18</span>     <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+<span class="mi">19</span>         <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">COMPOSITE_DATA_META_DATA</span><span class="p">(),</span>
+<span class="mi">20</span>         <span class="n">md</span><span class="p">)</span>
+<span class="mi">21</span>
+<span class="mi">22</span>     <span class="k">return</span> <span class="mi">1</span></code></pre></div>
 
-<p>In the next article, we will discover how we can extend this reader to
-support block-based streaming. Until then, happy coding.</p>
+<p>Lines 5-14 are the meat of this function. On line 5, we create
+a multi-block dataset that will be used to hold meta-data to
+be sent downstream. Note that, this object is used for transmitting
+meta-data only. On line 8, we extract
+a block number from the name of an HDF5 group. On lines 12-13,
+we read the bounds for that block. This meta-data is assigned to
+the corresponding block&#39;s meta-data object obtained on line 10.
+Finally, we set this dataset as the <code>COMPOSITE_DATA_META_DATA()</code> on
+lines 18-20. This information entry is propagated downstream automatically
+by the pipeline during the <code>RequestInformation()</code> pass.</p>
+
+<p>Once this meta-data is propagated downstream, consumers can ask for
+a subset of blocks to be read during the <code>RequestUpdateExtent()</code> pass.
+This pass will likely set a <code>UPDATE_COMPOSITE_INDICES()</code> which the
+reader has to respond to. We will demonstrate how this key is set
+later. Let&#39;s first look at how the reader uses it in <code>RequestData()</code>.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">))</span>
+
+    <span class="kn">import</span> <span class="nn">re</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&#39;piece([0-9]*)&#39;</span><span class="p">)</span>
+
+    <span class="n">f</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span>
+        <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">()):</span>
+        <span class="n">uci</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">uci</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pieces</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">num</span> <span class="k">for</span> <span class="n">num</span> <span class="ow">in</span> <span class="n">uci</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">pieces</span> <span class="o">=</span> <span class="n">f</span>
+
+    <span class="k">for</span> <span class="n">grp_name</span> <span class="ow">in</span> <span class="n">pieces</span><span class="p">:</span>
+        <span class="c"># ...</span></code></pre></div>
+
+<p>The main difference from a standard reader is that we look at which
+blocks (referred to as <code>pieces</code> in this example but not to be confused
+with the pipeline piece) are requested to decide what to read. This
+code handles 3 different cases:</p>
+
+<ul>
+<li>No <code>UPDATE_COMPOSITE_INDICES()</code> is set. In this case, we read all
+of the blocks. <code>pieces == f</code>.</li>
+<li><code>UPDATE_COMPOSITE_INDICES()</code> is set but is empty. We read nothing.
+<code>pieces == []</code></li>
+<li><code>UPDATE_COMPOSITE_INDICES()</code> is set to a non-empty list. We read
+what is requested. <code>pieces == [&quot;piece%d&quot; % num for num in uci]</code>.</li>
+</ul>
+
+<p>This is it for the reader. Now let&#39;s look at a simple streaming writer.
+This is very similar to writer in the previous blog but uses blocks
+instead of pieces to stream.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">StreamBlocks</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkMultiBlockDataSet&#39;</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkMultiBlockDataSet&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">blocks</span> <span class="o">=</span> <span class="n">info</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">COMPOSITE_DATA_META_DATA</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">=</span> <span class="n">blocks</span><span class="o">.</span><span class="n">GetNumberOfBlocks</span><span class="p">()</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">(),</span>
+            <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span><span class="p">],</span>
+            <span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">__File</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
+
+        <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">inpMB</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">inpMB</span><span class="o">.</span><span class="n">GetBlock</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">inp</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">inpMB</span><span class="o">.</span><span class="n">GetBlock</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">inp</span><span class="o">.</span><span class="n">GetNumberOfCells</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">grp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;piece</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span><span class="p">)</span>
+                <span class="n">grp</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s">&#39;bounds&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">inp</span><span class="o">.</span><span class="n">GetBounds</span><span class="p">()</span>
+
+                <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cells&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Cells</span><span class="p">)</span>
+                <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_types&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellTypes</span><span class="p">)</span>
+                <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;cell_locations&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">CellLocations</span><span class="p">)</span>
+
+                <span class="n">grp</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="s">&quot;points&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">Points</span><span class="p">)</span>
+
+                <span class="n">pdata</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">create_group</span><span class="p">(</span><span class="s">&quot;point_data&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">pdata</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">inp</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">NumberOfBlocks</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c"># If we are not done, ask the pipeline to re-execute us.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">request</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># Stop execution</span>
+            <span class="n">request</span><span class="o">.</span><span class="n">Remove</span><span class="p">(</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkStreamingDemandDrivenPipeline</span><span class="o">.</span><span class="n">CONTINUE_EXECUTING</span><span class="p">())</span>
+            <span class="c"># Reset for next potential execution.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">__File</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">__File</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">SetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fname</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fname</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span> <span class="o">=</span> <span class="n">fname</span>
+
+    <span class="k">def</span> <span class="nf">GetFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__FileName</span></code></pre></div>
+
+<p>If you compare this writer to the previous one, you will see that it has
+very few minor differences. The biggest difference is in <code>RequestUpdateExtent()</code>:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+    <span class="n">info</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">info</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+        <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">(),</span>
+        <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateIndex</span><span class="p">],</span>
+        <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">1</span></code></pre></div>
+
+<p>Note how the writer sets <code>UPDATE_COMPOSITE_INDICES()</code> rather than
+<code>UPDATE_PIECE_NUMBER()</code> to achieve streaming.</p>
+
+<p>Let&#39;s make things a bit more interesting. Say we want to insert a planar
+cutter (slice) between the writer and the reader. This filter will need
+only a subset of the input blocks - the ones that the slice plane intersects.
+Since the spatial bounds of each block is available at the meta-data stage
+(<code>RequestInformation</code>), this filter can actually make a smart decision on
+which blocks need to be loaded by the reader. Here is such a filter.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">class</span> <span class="nc">PlaneCutter</span><span class="p">(</span><span class="n">VTKPythonAlgorithmBase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">VTKPythonAlgorithmBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+            <span class="n">nInputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">inputType</span><span class="o">=</span><span class="s">&#39;vtkMultiBlockDataSet&#39;</span><span class="p">,</span>
+            <span class="n">nOutputPorts</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">outputType</span><span class="o">=</span><span class="s">&#39;vtkMultiBlockDataSet&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__Origin</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__Normal</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span> <span class="nf">CheckBounds</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">bounds</span><span class="p">):</span>
+        <span class="n">pts</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+         <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]</span>
+        <span class="kn">import</span> <span class="nn">numpy</span>
+        <span class="n">org</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Origin</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="n">nrm</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Normal</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="n">point</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">3</span><span class="p">,),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="n">sign</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">all_same</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">for</span> <span class="n">pt</span> <span class="ow">in</span> <span class="n">pts</span><span class="p">:</span>
+            <span class="n">point</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span><span class="p">[</span><span class="n">pt</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+            <span class="n">point</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span><span class="p">[</span><span class="n">pt</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">2</span><span class="p">]</span>
+            <span class="n">point</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">bounds</span><span class="p">[</span><span class="n">pt</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="mi">4</span><span class="p">]</span>
+            <span class="n">sn</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">point</span> <span class="o">-</span> <span class="n">org</span><span class="p">,</span> <span class="n">nrm</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">sign</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">sign</span> <span class="o">=</span> <span class="n">sn</span>
+            <span class="k">if</span> <span class="n">sign</span> <span class="o">!=</span> <span class="n">sn</span><span class="p">:</span>
+                <span class="n">all_same</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="k">break</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="n">all_same</span>
+
+    <span class="k">def</span> <span class="nf">RequestInformation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">inInfo0</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">metaData</span> <span class="o">=</span> <span class="n">inInfo0</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">COMPOSITE_DATA_META_DATA</span><span class="p">())</span>
+        <span class="n">nblocks</span> <span class="o">=</span> <span class="n">metaData</span><span class="o">.</span><span class="n">GetNumberOfBlocks</span><span class="p">()</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nblocks</span><span class="p">):</span>
+            <span class="n">bmd</span> <span class="o">=</span> <span class="n">metaData</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">CheckBounds</span><span class="p">(</span><span class="n">bmd</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">())):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
+                <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="n">md</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">ii</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">imd</span> <span class="o">=</span> <span class="n">metaData</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">ii</span><span class="p">)</span>
+            <span class="n">bds</span> <span class="o">=</span> <span class="n">imd</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">())</span>
+            <span class="n">md</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">bmd</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+            <span class="n">bmd</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">(),</span> <span class="n">bds</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+
+        <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">COMPOSITE_DATA_META_DATA</span><span class="p">(),</span>
+            <span class="n">md</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">inInfo0</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Has</span><span class="p">(</span>
+            <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">()):</span>
+            <span class="n">uci</span> <span class="o">=</span> <span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">uci</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">uci</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">uci</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+
+        <span class="n">requestBlocks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">uci</span><span class="p">:</span>
+            <span class="n">requestBlocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+
+        <span class="n">nblocks</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">requestBlocks</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">nblocks</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># Special case because the Python generated code</span>
+            <span class="c"># does not like None instead of a NULL pointer in</span>
+            <span class="c"># this case.</span>
+            <span class="n">inInfo0</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">(),</span>
+                <span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                <span class="mi">0</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">inInfo0</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+                <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">(),</span>
+                <span class="n">requestBlocks</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">requestBlocks</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">RequestData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+        <span class="n">inInfo0</span> <span class="o">=</span> <span class="n">inInfo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">inpMB</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">inInfo0</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="o">.</span><span class="n">GetData</span><span class="p">(</span><span class="n">outInfo</span><span class="p">)</span>
+
+        <span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCutter</span><span class="p">()</span>
+
+        <span class="n">p</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPlane</span><span class="p">()</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">SetNormal</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Normal</span><span class="p">)</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">SetOrigin</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Origin</span><span class="p">)</span>
+        <span class="n">c</span><span class="o">.</span><span class="n">SetCutFunction</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+        <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">itr</span> <span class="o">=</span> <span class="n">inpMB</span><span class="o">.</span><span class="n">NewIterator</span><span class="p">()</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">itr</span><span class="o">.</span><span class="n">IsDoneWithTraversal</span><span class="p">():</span>
+            <span class="n">inp</span> <span class="o">=</span> <span class="n">itr</span><span class="o">.</span><span class="n">GetCurrentDataObject</span><span class="p">()</span>
+            <span class="n">c</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+            <span class="n">c</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+            <span class="n">opt</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span><span class="o">.</span><span class="n">NewInstance</span><span class="p">()</span>
+            <span class="n">opt</span><span class="o">.</span><span class="n">ShallowCopy</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+            <span class="n">output</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">opt</span><span class="p">)</span>
+            <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">itr</span><span class="o">.</span><span class="n">GoToNextItem</span><span class="p">()</span>
+
+        <span class="n">itr</span><span class="o">.</span><span class="n">UnRegister</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">SetOrigin</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">origin</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__Origin</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__Origin</span> <span class="o">=</span> <span class="n">origin</span>
+
+    <span class="k">def</span> <span class="nf">GetOrigin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__Origin</span>
+
+    <span class="k">def</span> <span class="nf">SetNormal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">normal</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">normal</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__Normal</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">Modified</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__Normal</span> <span class="o">=</span> <span class="n">normal</span>
+
+    <span class="k">def</span> <span class="nf">GetNormal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__Normal</span></code></pre></div>
+
+<p>This filter is more complicated than what we have seen so far. Let&#39;s
+break it into smaller pieces to study.</p>
+
+<p>First the meta-data pass.
+Since this filter will ask only for a subset of the input blocks,
+it needs to replace the <code>COMPOSITE_DATA_META_DATA()</code> object with one
+that takes out the blocks that will not be needed. This way, any
+filter downstream will not ask for unnecessary blocks. The
+following code identifies the blocks that may be loaded.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nblocks</span><span class="p">):</span>
+    <span class="n">bmd</span> <span class="o">=</span> <span class="n">metaData</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">CheckBounds</span><span class="p">(</span><span class="n">bmd</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">())):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span></code></pre></div>
+
+<p>It also makes a map from the output block id to the input block id.
+This will be needed in <code>RequestUpdateExtent()</code> as we will see later.
+Then we create a new multi-block meta-data object as follows.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">md</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+    <span class="n">ii</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+    <span class="n">imd</span> <span class="o">=</span> <span class="n">metaData</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">ii</span><span class="p">)</span>
+    <span class="n">bds</span> <span class="o">=</span> <span class="n">imd</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">())</span>
+    <span class="n">md</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+    <span class="n">bmd</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">GetMetaData</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="n">bmd</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span><span class="n">vtk</span><span class="o">.</span><span class="n">vtkDataObject</span><span class="o">.</span><span class="n">BOUNDING_BOX</span><span class="p">(),</span> <span class="n">bds</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+
+<span class="n">outInfo</span><span class="o">.</span><span class="n">GetInformationObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">COMPOSITE_DATA_META_DATA</span><span class="p">(),</span>
+    <span class="n">md</span><span class="p">)</span></code></pre></div>
+
+<p>Fairly straightforward. Using the map, copy meta-data from
+input to output. Now the output meta-data contains only blocks
+that intersect the plane. There is one minor issue however.
+Downstream filters will use an index space to request blocks
+which is different than the index space for the input. The
+good news is that we have a map to convert from one to another.
+We use this in <code>RequestUpdateExtent()</code> as follows.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="k">def</span> <span class="nf">RequestUpdateExtent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">inInfo</span><span class="p">,</span> <span class="n">outInfo</span><span class="p">):</span>
+
+    <span class="c"># ...</span>
+    <span class="n">requestBlocks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">uci</span><span class="p">:</span>
+        <span class="n">requestBlocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__BlockMap</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+
+    <span class="n">nblocks</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">requestBlocks</span><span class="p">)</span>
+    <span class="n">inInfo0</span><span class="o">.</span><span class="n">Set</span><span class="p">(</span>
+        <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCompositeDataPipeline</span><span class="o">.</span><span class="n">UPDATE_COMPOSITE_INDICES</span><span class="p">(),</span>
+        <span class="n">requestBlocks</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">requestBlocks</span><span class="p">))</span></code></pre></div>
+
+<p>Pretty easy. For each requested block (in <code>uci</code>), ask for the
+corresponding input block by mapping it through the <code>BlockMap</code>
+data member. By the way, <code>uci</code> is computed in a similar way
+to the reader so it shouldn&#39;t need explanation.</p>
+
+<p>Here you go. We can exercise these algorithms in the following
+ways.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">r</span> <span class="o">=</span> <span class="n">HDF5Reader</span><span class="p">()</span>
+<span class="n">r</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test.h5&quot;</span><span class="p">)</span>
+
+<span class="n">f</span> <span class="o">=</span> <span class="n">StreamBlocks</span><span class="p">()</span>
+<span class="n">f</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">f</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test2.h5&quot;</span><span class="p">)</span>
+
+<span class="n">f</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
+
+<p>This will produce a file identical to the input (<code>test.h5</code>).</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">r</span> <span class="o">=</span> <span class="n">HDF5Reader</span><span class="p">()</span>
+<span class="n">r</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test.h5&quot;</span><span class="p">)</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">PlaneCutter</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetOrigin</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+
+<span class="n">c</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="k">print</span> <span class="n">c</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span></code></pre></div>
+
+<p>For a <code>test.h5</code> created with 33 blocks, this will print a dataset
+with 7 blocks, showing that only 7 blocks were loaded. These are
+blocks with bounds intersecting the plane.</p>
+
+<p>The following pipeline, with minor modifications to the writer,
+would also work.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">r</span> <span class="o">=</span> <span class="n">HDF5Reader</span><span class="p">()</span>
+<span class="n">r</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test.h5&quot;</span><span class="p">)</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">PlaneCutter</span><span class="p">()</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">c</span><span class="o">.</span><span class="n">SetOrigin</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+
+<span class="n">f</span> <span class="o">=</span> <span class="n">StreamBlocks</span><span class="p">()</span>
+<span class="n">f</span><span class="o">.</span><span class="n">SetInputConnection</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetOutputPort</span><span class="p">())</span>
+<span class="n">f</span><span class="o">.</span><span class="n">SetFileName</span><span class="p">(</span><span class="s">&quot;test2.h5&quot;</span><span class="p">)</span>
+
+<span class="n">f</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span></code></pre></div>
+
+<p>For this to work, you have to change <code>StreamBlocks()</code> to
+write a polydata instead of an unstructured grid (left to you
+as an exercise). Once that change is made, this pipeline
+will write 7 blocks of slices for a 33 blocks input dataset.</p>
+
+<p>This is it folks. If you read all my blogs on the VTK pipeline,
+you pretty much know everything necessary to put together very
+sophisticated pipelines to solve all kinds of problems. Please
+be sure to let us know on the VTK mailing list about any interesting
+pipelines you put together.</p>
+
+<p>In the future, I will switch gears and start talking about VTK&#39;s
+data model as well as various ways of developing parallel algorithms.</p>
 
   </div>
   

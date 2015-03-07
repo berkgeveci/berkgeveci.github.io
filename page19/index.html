@@ -51,107 +51,157 @@
   
   <div class="post">
     <h1 class="post-title">
-      <a href="/2014/08/21/send-dataobjects/">
-        Sending and receiving VTK data objects using MPI
+      <a href="/2014/08/25/vtk-python-5/">
+        Improved VTK - numpy integration (part 5)
       </a>
     </h1>
 
-    <span class="post-date">21 Aug 2014</span>
+    <span class="post-date">25 Aug 2014</span>
 
-    <p>Someone asked me on Twitter if it is possible to send VTK objects to slave nodes using mpi4py. The
-answer is sometimes. In the most general case, you need to use something like
-<a href="http://docs.enthought.com/mayavi/tvtk/">tvtk</a> to make use of mpi4py&#39;s ability to send/receive any
-pickled Python object. Even then, tvtk does not pickle references to other VTK objects so you can&#39;t
-send an arbitrary graph of objects using mpi4py.</p>
+    <p>Welcome to my last blog in the series where we  to discover VTK&#39;s
+<code>numpy_interface</code> module. If you are not familiar with this module, I
+recommend checking out my previous blogs on it ([<a href="/2014/07/28/vtk-python/">1</a>], 
+[<a href="/2014/07/31/vtk-python-2/">2</a>], [<a href="/2014/08/07/vtk-python-3/">3</a>]).
+In this blog, I will talk about how one can work with composite datasets and arrays using 
+this module.</p>
 
-<p>In the less general case, one can use VTK communicators to send/receive data objects. Here is a
-simple example:</p>
+<p>Let&#39;s start with defining what a composite dataset is. From a class point of view, it is
+<code>vtkCompositeDataSet</code> or any of its subclasses. From a functionality point of view, it is a way of
+collecting together a set of <code>vtkDataObject</code>s (usually <code>vtkDataSet</code>s). The most generic example is
+<code>vtkMultiBlockDataSet</code> which allows the creation of an arbitrary tree of <code>vtkDataObject</code>s.
+Another example is <code>vtkOverlappingAMR</code> which represent a Berger-Colella style AMR meshes. Here is
+how we can create a multi-block dataset.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span> <span class="nn">vtk</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">s</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">s</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkConeSource</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">c</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">mb</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiBlockDataSet</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">mb</span><span class="o">.</span><span class="n">SetBlock</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">())</span></code></pre></div>
 
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
+<p>Many of VTK&#39;s algorithms work with composite datasets without any change. For example:</p>
 
-<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">e</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkElevationFilter</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">SetInputData</span><span class="p">(</span><span class="n">mb</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">e</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">mbe</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">GetOutputDataObject</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">mbe</span><span class="o">.</span><span class="n">GetClassName</span><span class="p">()</span></code></pre></div>
 
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">c</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
-    <span class="n">c</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1234</span><span class="p">)</span>
-    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
+<p>This will output <code>&#39;vtkMultiBlockDataSet&#39;</code>. Note that I used <code>GetOutputDataObject()</code> rather than
+<code>GetOutput()</code>. <code>GetOutput()</code> is simply a <code>GetOutputDataObject()</code> wrapped with a <code>SafeDownCast()</code>
+to the expected output type of the algorithm - which in this case is a <code>vtkDataSet</code>. So
+<code>GetOutput()</code> will return <code>0</code> even when <code>GetOutputDataObject()</code> returns an actual composite
+dataset.</p>
 
-<p>See the documentation for <code>vtkMultiProcessController</code> and <code>vtkMPIController</code> to see which methods
-are available in C++. Note that not all of these methods are accessible in Python. It is also
-possible to broadcast a data object as follows.</p>
+<p>Now that we have a composite dataset with a scalar, we can use <code>numpy_interface</code>.</p>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">vtk</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">mbw</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">WrapDataObject</span><span class="p">(</span><span class="n">mbe</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+<span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">,</span> <span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">elev</span> <span class="o">=</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Elevation&#39;</span><span class="p">]</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">elev</span>
+<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKCompositeDataArray</span> <span class="n">at</span> <span class="mh">0x1189ee410</span><span class="o">&gt;</span></code></pre></div>
 
-<span class="n">c</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMultiProcessController</span><span class="o">.</span><span class="n">GetGlobalController</span><span class="p">()</span>
+<p>Note that the array type is different than we have seen previously (<code>VTKArray</code>). However, it still
+works the same way.</p>
 
-<span class="n">rank</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">GetLocalProcessId</span><span class="p">()</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">algorithms</span> <span class="k">as</span> <span class="n">algs</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
+<span class="mf">0.5</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">elev</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<span class="mf">1.5</span></code></pre></div>
 
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">sphere</span> <span class="o">=</span> <span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">sphere</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
+<p>You can individually access the arrays of each block as follows.</p>
 
-<span class="n">c</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">(</span><span class="n">sphere</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">elev</span><span class="o">.</span><span class="n">Arrays</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.5</span>       <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>
+        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>
+        <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>
+        <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>
+        <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>
+        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>
+        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>
+        <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>  <span class="mf">0.3117449</span> <span class="p">,</span>
+        <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">,</span>
+        <span class="mf">0.3117449</span> <span class="p">,</span>  <span class="mf">0.11126047</span><span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">,</span>  <span class="mf">0.</span>        <span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span></code></pre></div>
 
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-    <span class="k">print</span> <span class="n">sphere</span></code></pre></div>
+<p>Note that indexing is slightly different.</p>
 
-<p>Both of these methods depend on serializing a data object to a buffer using writers and reading
-back using readers. The legacy readers and writers are used for this. Here is how one can
-directly use this marshaling/unmarshaling capability with mpi4py:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">elev</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+<span class="p">[</span><span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.5</span><span class="p">,</span>  <span class="mf">0.</span><span class="p">,</span>  <span class="mf">0.45048442</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">),</span>
+ <span class="n">VTKArray</span><span class="p">([</span> <span class="mf">0.</span><span class="p">,</span>  <span class="mf">0.</span><span class="p">,</span>  <span class="mf">0.43301269</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)]</span></code></pre></div>
 
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">from</span> <span class="nn">vtk.numpy_interface</span> <span class="kn">import</span> <span class="n">dataset_adapter</span> <span class="k">as</span> <span class="n">dsa</span>
-<span class="kn">from</span> <span class="nn">mpi4py</span> <span class="kn">import</span> <span class="n">MPI</span>
-<span class="n">comm</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkMPI4PyCommunicator</span><span class="o">.</span><span class="n">ConvertToPython</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">GetCommunicator</span><span class="p">())</span>
-<span class="kn">import</span> <span class="nn">numpy</span>
+<p>The return value is a composite array consisting of 2 <code>VTKArray</code>s. The <code>[]</code> operator simply returned
+the first 4 values of each array. In general, all indexing operations apply to each <code>VTKArray</code> in
+the composite array collection. Similarly for algorithms such as <code>where</code>.</p>
 
-<span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">ssource</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
-    <span class="n">ssource</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
-    <span class="n">ca</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCharArray</span><span class="p">()</span>
-    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">MarshalDataObject</span><span class="p">(</span><span class="n">ssource</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">(),</span> <span class="n">ca</span><span class="p">)</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">dsa</span><span class="o">.</span><span class="n">vtkDataArrayToVTKArray</span><span class="p">(</span><span class="n">ca</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Send</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">sz</span> <span class="o">=</span> <span class="n">comm</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
-    <span class="n">buff</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">sz</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
-    <span class="n">comm</span><span class="o">.</span><span class="n">Recv</span><span class="p">([</span><span class="n">buff</span><span class="p">,</span> <span class="n">MPI</span><span class="o">.</span><span class="n">CHAR</span><span class="p">])</span>
-    <span class="n">pd</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkPolyData</span><span class="p">()</span>
-    <span class="n">vtk</span><span class="o">.</span><span class="n">vtkCommunicator</span><span class="o">.</span><span class="n">UnMarshalDataObject</span><span class="p">(</span><span class="n">dsa</span><span class="o">.</span><span class="n">numpyTovtkDataArray</span><span class="p">(</span><span class="n">buff</span><span class="p">),</span> <span class="n">pd</span><span class="p">)</span>
-    <span class="k">print</span> <span class="n">pd</span></code></pre></div>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">elev</span> <span class="o">&lt;</span> <span class="mf">0.5</span><span class="p">)</span>
+<span class="p">[(</span><span class="n">array</span><span class="p">([</span> <span class="mi">1</span><span class="p">,</span>  <span class="mi">2</span><span class="p">,</span>  <span class="mi">3</span><span class="p">,</span>  <span class="mi">4</span><span class="p">,</span>  <span class="mi">5</span><span class="p">,</span>  <span class="mi">6</span><span class="p">,</span>  <span class="mi">7</span><span class="p">,</span>  <span class="mi">8</span><span class="p">,</span>  <span class="mi">9</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">,</span> <span class="mi">14</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">17</span><span class="p">,</span>
+       <span class="mi">18</span><span class="p">,</span> <span class="mi">19</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">22</span><span class="p">,</span> <span class="mi">23</span><span class="p">,</span> <span class="mi">24</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">27</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">29</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">31</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">33</span><span class="p">,</span> <span class="mi">34</span><span class="p">,</span>
+       <span class="mi">35</span><span class="p">,</span> <span class="mi">36</span><span class="p">,</span> <span class="mi">37</span><span class="p">,</span> <span class="mi">38</span><span class="p">,</span> <span class="mi">39</span><span class="p">,</span> <span class="mi">40</span><span class="p">,</span> <span class="mi">41</span><span class="p">,</span> <span class="mi">42</span><span class="p">,</span> <span class="mi">43</span><span class="p">,</span> <span class="mi">44</span><span class="p">,</span> <span class="mi">45</span><span class="p">,</span> <span class="mi">46</span><span class="p">,</span> <span class="mi">47</span><span class="p">,</span> <span class="mi">48</span><span class="p">,</span> <span class="mi">49</span><span class="p">]),),</span>
+       <span class="p">(</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">]),)]</span></code></pre></div>
 
-<p>It would be fairly easy to extend this example to use non-blocking communication methods
-available in MPI.</p>
+<p>Now, let&#39;s look at the other array called <code>Normals</code>.</p>
 
-<p>Finally, here is a list of data object types that are supported by the marshaling code:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">normals</span> <span class="o">=</span> <span class="n">mbw</span><span class="o">.</span><span class="n">PointData</span><span class="p">[</span><span class="s">&#39;Normals&#39;</span><span class="p">]</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">normals</span><span class="o">.</span><span class="n">Arrays</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">VTKArray</span><span class="p">([[</span>  <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">1.00000000e+00</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>  <span class="o">-</span><span class="mf">1.00000000e+00</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">4.33883727e-01</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">9.00968850e-01</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">7.81831503e-01</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">6.23489797e-01</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">9.74927902e-01</span><span class="p">,</span>   <span class="mf">0.00000000e+00</span><span class="p">,</span>   <span class="mf">2.22520933e-01</span><span class="p">],</span>
+       <span class="o">...</span>
+       <span class="p">[</span>  <span class="mf">6.89378142e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.89378142e-01</span><span class="p">,</span>   <span class="mf">2.22520933e-01</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">6.89378142e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.89378142e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">2.22520933e-01</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">5.52838326e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">5.52838326e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">6.23489797e-01</span><span class="p">],</span>
+       <span class="p">[</span>  <span class="mf">3.06802124e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">3.06802124e-01</span><span class="p">,</span>  <span class="o">-</span><span class="mf">9.00968850e-01</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">normals</span><span class="o">.</span><span class="n">Arrays</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="o">&lt;</span><span class="n">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">VTKNoneArray</span> <span class="n">at</span> <span class="mh">0x1189e7790</span><span class="o">&gt;</span></code></pre></div>
 
-<ul>
-<li>VTK<em>DIRECTED</em>GRAPH</li>
-<li>VTK<em>UNDIRECTED</em>GRAPH</li>
-<li>VTK<em>IMAGE</em>DATA</li>
-<li>VTK<em>POLY</em>DATA</li>
-<li>VTK<em>RECTILINEAR</em>GRID</li>
-<li>VTK<em>STRUCTURED</em>GRID</li>
-<li>VTK<em>STRUCTURED</em>POINTS</li>
-<li>VTK_TABLE</li>
-<li>VTK_TREE</li>
-<li>VTK<em>UNSTRUCTURED</em>GRID</li>
-<li>VTK<em>MULTIBLOCK</em>DATA_SET</li>
-<li>VTK<em>UNIFORM</em>GRID_AMR</li>
-</ul>
+<p>Notice how the second arrays is a <code>VTKNoneArray</code>. This is because <code>vtkConeSource</code> does not produce
+normals. Where an array does not exist, we use a <code>VTKNoneArray</code> as placeholder. This allows us to
+maintain a one-to-one mapping between datasets of a composite dataset and the arrays in the
+<code>VTKCompositeDataArray</code>. It also allows us to keep algorithms working in parallel without a lot
+of specialized code (see my <a href="http://www.kitware.com/blog/home/post/720">previous blog</a>).</p>
 
-<p>I hope that this answers the question.</p>
+<p>Where many of the algorithms apply independently to each array in a collection, some algorithms are
+global. For example, <code>min</code> and <code>max</code> as we demonstrated above. It is sometimes useful to get per
+block answers. For this, you can use <code>_per_block</code> algorithms.</p>
 
-<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/721">Kitware blog</a>.
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max_per_block</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
+<span class="p">[</span><span class="n">VTKArray</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">),</span> <span class="n">VTKArray</span><span class="p">(</span><span class="mf">0.4330126941204071</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">float32</span><span class="p">)]</span></code></pre></div>
+
+<p>These work very nicely together with other operations. For example, here is how we can normalize
+the elevation values in each block.</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="n">_min</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">min_per_block</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">_max</span> <span class="o">=</span> <span class="n">algs</span><span class="o">.</span><span class="n">max_per_block</span><span class="p">(</span><span class="n">elev</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">_norm</span> <span class="o">=</span> <span class="p">(</span><span class="n">elev</span> <span class="o">-</span> <span class="n">_min</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">_max</span> <span class="o">-</span> <span class="n">_min</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">_norm</span><span class="p">)</span>
+<span class="mf">0.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span> <span class="n">algs</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">_norm</span><span class="p">)</span>
+<span class="mf">1.0</span></code></pre></div>
+
+<p>Once you grasp these features, you should be able to use composite array very similarly to single
+arrays as described in previous blogs.</p>
+
+<p>A final note on composite datasets. The composite data wrapper provided by
+<code>numpy_interface.dataset_adapter</code> offers a few convenience functions to traverse composite datasets.
+Here is a simple example:</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="o">&gt;&gt;&gt;</span> <span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="n">mbw</span><span class="p">:</span>
+<span class="o">&gt;&gt;&gt;</span>    <span class="k">print</span> <span class="nb">type</span><span class="p">(</span><span class="n">ds</span><span class="p">)</span>
+<span class="o">&lt;</span><span class="k">class</span> <span class="err">&#39;</span><span class="nc">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">PolyData</span><span class="s">&#39;&gt;</span>
+<span class="o">&lt;</span><span class="k">class</span> <span class="err">&#39;</span><span class="nc">vtk</span><span class="o">.</span><span class="n">numpy_interface</span><span class="o">.</span><span class="n">dataset_adapter</span><span class="o">.</span><span class="n">PolyData</span><span class="s">&#39;&gt;</span></code></pre></div>
+
+<p>This wraps up the blog series on <code>numpy_interface</code>. I hope to follow these up with some concrete
+examples of the module in action and some other useful information on using VTK from Python. Until
+then, cheers.</p>
+
+<p><em>Note: This article was originally published on the <a href="http://www.kitware.com/blog/home/post/723">Kitware blog</a>.
 Please see the <a href="http://www.kitware.com">Kitware web site</a>, the <a href="http://www.vtk.org">VTK web site</a> and the
 <a href="http://www.paraview.org">ParaView web site</a> for more information.</em></p>
 
